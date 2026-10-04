@@ -112,6 +112,7 @@ async def test_pilot_real_full_loop(real_service, source):
     async with app.run_test(size=(140, 45)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
+        await pilot.click("#add-source")
         app.query_one("#source", Input).value = str(source)
         await pilot.click("#browse")
         await app.workers.wait_for_complete()
@@ -120,6 +121,8 @@ async def test_pilot_real_full_loop(real_service, source):
         await pilot.press("a")
         assert len(app.available_selected) == 3
         await pilot.click("#install")
+        await pilot.pause()
+        await pilot.click("#apply-install")
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert not app.catalog and len(app.skills) == 3
@@ -133,6 +136,8 @@ async def test_pilot_real_full_loop(real_service, source):
         await pilot.pause()
         assert next(s for s in app.skills if s.name == "alpha").status == Status.OUTDATED
         await pilot.press("a", "u")
+        await pilot.pause()
+        await pilot.click("#apply-install")
         await app.workers.wait_for_complete()
         await pilot.pause()
         await pilot.press("c")

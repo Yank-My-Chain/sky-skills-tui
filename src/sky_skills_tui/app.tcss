@@ -1,45 +1,71 @@
-Screen { background: #0b1020; color: #dae3f2; }
-Header { background: #162039; color: #8fe4e3; }
-Footer { background: #162039; }
-#workspace { padding: 0 1; }
+Screen { background: $background; color: $text; }
+Header, Footer { background: $panel; }
+#workspace { padding: 0 2; }
 #intro { height: 2; align-vertical: middle; }
-#library-title { width: 22; color: #8fe4e3; text-style: bold; }
-#project-path { width: 1fr; color: #8796b3; text-align: right; }
-#filters, #source-bar, #targets { height: 3; }
+#library-title { width: 18; text-style: bold; }
+#project-path { width: 1fr; color: $text-muted; text-align: right; }
+#filters, #source-bar { height: 3; margin-bottom: 1; }
 #scope { width: 19; margin-right: 1; }
 #filter, #source { width: 1fr; margin-right: 1; }
-Input, Select { background: #111b30; border: tall #273650; }
-Input:focus { border: tall #8fe4e3; }
-Button { min-width: 10; margin-right: 1; background: #1b2b44; border: none; }
-Button:hover { background: #2b4261; }
-Button.-primary { background: #247d86; }
-Button.-success { background: #246e59; }
-Button.-error { background: #7b354a; }
-#targets Label { width: 12; padding-top: 1; color: #8796b3; }
-#target-scope { width: 16; margin-right: 1; }
-#agents { width: 1fr; }
-#copy { width: 18; background: transparent; border: none; }
-#summary { height: 2; padding-top: 1; color: #8fe4e3; }
-#main { height: 1fr; min-height: 6; }
-#list-panel { width: 3fr; border: round #273650; }
-#details-panel { width: 2fr; margin-left: 1; border: round #273650; }
-#skills { height: 1fr; background: #0f182b; }
-DataTable > .datatable--header { background: #1b2b44; color: #8fe4e3; }
-DataTable > .datatable--cursor { background: #254455; color: #ffffff; }
-#hint { height: 1; color: #8796b3; padding-left: 1; }
-#details { padding: 1; }
-TabbedContent, TabPane { padding: 0; }
-#actions { height: 3; margin-top: 1; }
-#log { height: 5; background: #0f182b; border-left: thick #247d86; padding: 0 1; }
-#operation { height: 1; color: #8796b3; }
-.short #log { height: 2; }
+/* SelectCurrent already owns the border. A second border on Select clips it. */
+Select { border: none; padding: 0; height: 3; }
+Input, Select > SelectCurrent { background: $surface; border: tall $border-blurred; }
+Input:focus, Select:focus > SelectCurrent { border: tall $accent; }
+Button { height: 3; min-width: 8; margin-right: 1; padding: 0 1; background: $surface; border: tall $border-blurred; }
+Button:hover { background: $boost; }
+Button:focus { border: tall $accent; text-style: bold reverse; }
+Button.-primary { background: $primary; color: $text; text-style: bold; }
+Button.-error { background: $error; color: $text-error; }
+#summary { height: 2; color: $text-muted; }
+#main { height: 1fr; min-height: 5; }
+#list-panel { width: 1fr; border: round $secondary 35%; }
+#details-panel { width: 1fr; margin-left: 2; border: round $secondary 35%; }
+#list-panel:focus-within, #details-panel:focus-within { border: round $accent; }
+#skills { height: 1fr; background: $background; }
+DataTable > .datatable--header { background: $panel; color: $text-muted; text-style: bold; }
+DataTable > .datatable--cursor { background: $primary 35%; color: $text; text-style: bold; }
+#hint { height: 1; color: $text-muted; padding: 0 1; }
+#empty { height: 1fr; padding: 2; color: $text-muted; }
+#details, #metadata { padding: 1 2; height: auto; }
+TabbedContent { height: 1fr; }
+TabbedContent > ContentSwitcher { height: 1fr; }
+TabPane { height: 1fr; padding: 0; }
+#content-scroll, #details-scroll, #metadata-scroll { height: 1fr; scrollbar-gutter: stable; }
+VerticalScroll:focus { background-tint: $primary 3%; }
+Markdown { padding: 1 2; background: transparent; }
+MarkdownH1 { content-align: left middle; border: none; text-align: left; margin: 1 0; padding: 0; color: $text; text-style: bold; }
+MarkdownH2 { border: none; margin: 1 0; padding: 0; color: $text; text-style: bold; }
+MarkdownH3 { color: $text; text-style: bold; }
+#action-context { height: 1; margin-top: 1; color: $text-muted; }
+#actions { height: 3; }
+#operation { height: 1; color: $text-muted; }
+#size-warning { display: none; height: 1fr; content-align: center middle; padding: 1; }
+.too-small #workspace { display: none; }
+.too-small #size-warning { display: block; }
 .short #intro { display: none; }
-.short #summary { height: 1; padding-top: 0; }
-.short #hint { display: none; }
-.narrow #details-panel { width: 1fr; }
-.narrow #list-panel { width: 2fr; }
-ConfirmScreen { align: center middle; background: #000000 65%; }
-#confirm-dialog { width: 64; max-height: 90%; height: auto; padding: 1 2; border: round #7b354a; background: #162039; }
-#confirm-dialog Static { margin: 1 0; height: auto; max-height: 16; overflow-y: auto; }
-#confirm-dialog Horizontal { height: 3; }
-#confirm-title { color: #ffb4c5; text-style: bold; }
+.short #filters, .short #source-bar { margin-bottom: 0; }
+.short #summary { height: 1; }
+.narrow #details-panel { display: none; }
+.narrow #list-panel { width: 1fr; }
+.narrow.reading #list-panel { display: none; }
+.narrow.reading #details-panel { display: block; width: 1fr; margin-left: 0; }
+.narrow #workspace { padding: 0 1; }
+.narrow #activity, .narrow #help { display: none; }
+.narrow #actions Button { padding: 0; }
+ConfirmScreen, InstallScreen, HelpScreen, ActivityScreen { align: center middle; background: $background 70%; }
+#confirm-dialog, #install-dialog, .reader-dialog { max-width: 90%; max-height: 90%; padding: 1 2; border: round $accent; background: $surface; }
+#confirm-dialog, #install-dialog { width: 68; height: auto; }
+#confirm-dialog Static { margin: 1 0; height: auto; max-height: 12; overflow-y: auto; }
+#confirm-dialog Horizontal, .dialog-actions { height: 3; margin-top: 1; }
+#confirm-title, .dialog-title { text-style: bold; margin-bottom: 1; }
+.reader-dialog { width: 88; height: 85%; }
+#help-scroll, #activity-log { height: 1fr; margin-bottom: 1; }
+#install-dialog { padding: 0 2; }
+#install-dialog Label { margin-top: 0; }
+#install-dialog .dialog-title { margin: 0; }
+#install-names { max-height: 3; height: auto; overflow-y: auto; margin-bottom: 0; }
+#install-dialog Checkbox { border: none; background: transparent; padding: 0; height: 1; margin: 1 0; }
+#install-error { height: auto; color: $text-error; }
+.muted { color: $text-muted; height: auto; }
+#install-fields { height: auto; max-height: 14; }
+#install-dialog .dialog-actions { margin-top: 0; }
