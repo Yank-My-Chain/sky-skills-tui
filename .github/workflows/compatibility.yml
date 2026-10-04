@@ -1,0 +1,53 @@
+name: npm skills compatibility
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+    inputs:
+      skills_version:
+        description: "Exact npm release to probe (empty means latest)"
+        required: false
+        type: string
+jobs:
+  supported:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest --integration --network --junitxml=supported.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: supported-contracts
+          path: supported.xml
+  candidate:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: uv sync --locked
+      - name: Resolve candidate release
+        env:
+          REQUESTED_SKILLS_VERSION: ${{ inputs.skills_version }}
+        run: |
+          candidate_version="${REQUESTED_SKILLS_VERSION:-$(npm view skills version)}"
+          if [[ ! "$candidate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "An exact skills release is required"
+            exit 1
+          fi
+          echo "SKILLS_CANDIDATE_VERSION=$candidate_version" >> "$GITHUB_ENV"
+          printf 'Probing npm skills %s\n' "$candidate_version"
+      - name: Probe compatibility
+        run: uv run pytest --integration --network --skills-version "$SKILLS_CANDIDATE_VERSION" --junitxml=candidate.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-contracts
+          path: candidate.xml

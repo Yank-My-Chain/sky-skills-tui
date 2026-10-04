@@ -1,0 +1,17 @@
+[project]
+site_name = "Sky"
+repo_url = "https://github.com/Yank-My-Chain/sky-skills-tui"
+site_description = "A lockfile-driven Textual manager for npm skills"
+docs_dir = "docs"
+site_dir = "site"
+nav = [
+  { "Home" = "index.md" },
+  { "Installation" = "installation.md" },
+  { "Using the TUI" = "usage.md" },
+  { "Locks and compatibility" = "compatibility.md" },
+  { "Development" = "development.md" },
+]
+
+[project.theme]
+variant = "modern"
+features = ["navigation.sections", "content.code.copy"]

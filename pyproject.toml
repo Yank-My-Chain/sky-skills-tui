@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sky"
+version = "0.1.0"
+description = "A lockfile-driven Textual manager for the npm skills CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["textual>=6.0,<9", "platformdirs>=4.3,<5", "filelock>=3.19,<4", "pyyaml>=6.0,<7", "nodejs-wheel>=22.20,<25"]
+
+[project.scripts]
+sky = "sky_skills_tui.cli:main"
+
+[dependency-groups]
+dev = ["hatch>=1.16", "pytest>=8", "pytest-asyncio>=1", "ruff>=0.13", "ty>=0.0.1", "zensical>=0.0.20"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sky_skills_tui"]
+
+[tool.hatch.envs.default]
+installer = "uv"
+dependency-groups = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+check = ["ruff check .", "ruff format --check .", "ty check", "pytest"]
+test = "pytest {args}"
+integration = "pytest --integration {args}"
+docs = "zensical build --clean"
+serve-docs = "zensical serve"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: real npm CLI lifecycle in an isolated home (opt-in)"]
+
+[tool.ty.environment]
+python-version = "3.11"
