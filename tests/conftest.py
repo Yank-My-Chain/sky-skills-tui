@@ -15,6 +15,11 @@ def pytest_addoption(parser):
     parser.addoption("--integration", action="store_true", help="Run real npm contract tests")
     parser.addoption("--network", action="store_true", help="Also test a public GitHub source")
     parser.addoption("--skills-version", default=SKILLS_VERSION, help="Exact npm release to probe")
+    parser.addoption(
+        "--global-local-cli",
+        type=Path,
+        help="Also probe an already built upstream bin/cli.mjs for global local-folder support",
+    )
 
 
 def pytest_collection_modifyitems(config, items):

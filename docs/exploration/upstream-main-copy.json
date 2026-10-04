@@ -1,0 +1,17 @@
+{
+  "cliVersion": "1.7.0",
+  "cliBundleSha256": "5630b0e0ca588dee66cdae763082e2856f8491dc3447c7b8a79deecd1c73d382",
+  "copy": true,
+  "installedAndListed": true,
+  "globalLocalLockWritten": true,
+  "globalLockVersion": 3,
+  "upstreamGitCommit": "18f96ea131dab3b0fcc9b27cf7c6f6cbb6174680",
+  "sourceType": "local",
+  "hashMatchesSource": true,
+  "hashLength": 64,
+  "referenceOnlyUpdateTracked": true,
+  "originalInstallTimestampPreserved": true,
+  "missingInstallationRestored": true,
+  "sourceSkillRemovalDetected": true,
+  "removedAndUntracked": true
+}
