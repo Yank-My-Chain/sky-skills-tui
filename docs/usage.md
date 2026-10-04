@@ -1,6 +1,6 @@
 # Using the TUI
 
-Launch `sky-skills` inside a project, or pass `--project`. The app reads that project's `skills-lock.json` and your global lock. The summary shows visible skills, selected skills, and outdated skills. The activity log records operations and errors.
+Launch `sky` inside a project, or pass `--project`. The app reads that project's `skills-lock.json` and your global lock. The summary shows visible skills, selected skills, and outdated skills. The activity log records operations and errors.
 
 ## Inspect installed skills
 

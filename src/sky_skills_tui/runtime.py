@@ -43,7 +43,7 @@ class Runtime:
             )
         self.requested_version = version
         self.allow_unverified = allow_unverified
-        self.prefix = prefix or user_data_path("sky-skills-tui") / "npm"
+        self.prefix = prefix or user_data_path("sky") / "npm"
         self.env = dict(os.environ if env is None else env)
         root = Path(nodejs_wheel.executable.ROOT_DIR)
         self.node = root / ("node.exe" if os.name == "nt" else "bin/node")
@@ -110,7 +110,7 @@ class Runtime:
                     self._ready = False
                     raise CompatibilityError(
                         f"Managed npm skills changed during this session: {version!r}; "
-                        f"expected {self.requested_version}. Run sky-skills setup --upgrade."
+                        f"expected {self.requested_version}. Run sky setup --upgrade."
                     )
                 return version
             self.prefix.mkdir(parents=True, exist_ok=True)
@@ -126,7 +126,7 @@ class Runtime:
                 if version and version != self.requested_version and not upgrade:
                     raise CompatibilityError(
                         f"Managed npm skills {version} differs from tested "
-                        f"{self.requested_version}. Run sky-skills setup --upgrade to repair it."
+                        f"{self.requested_version}. Run sky setup --upgrade to repair it."
                     )
                 if upgrade or version != self.requested_version or not self.entry.exists():
                     await self.process(

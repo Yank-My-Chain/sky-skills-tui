@@ -37,7 +37,7 @@ Before supporting a release:
 2. Update the adapters for intentional changes and add regression fixtures.
 3. Run the full fast, live, and GitHub suites against that version.
 4. Update `SKILLS_VERSION` and `SUPPORTED_VERSIONS` in `runtime.py`, and the documented compatibility limits.
-5. Build wheel and sdist, install the wheel with `uv tool install`, run `setup`, `doctor`, and the TUI.
+5. Build wheel and sdist, install the wheel with `uv tool install`, run `sky setup`, `sky doctor`, and the TUI.
 
 Normal runtime use never opts into unverified versions. Tests opt in explicitly with `allow_unverified=True`, isolating their npm prefix by version.
 

@@ -1,5 +1,6 @@
 [project]
-site_name = "Sky Skills"
+site_name = "Sky"
+repo_url = "https://github.com/Yank-My-Chain/sky-skills-tui"
 site_description = "A lockfile-driven Textual manager for npm skills"
 docs_dir = "docs"
 site_dir = "site"

@@ -969,7 +969,7 @@ wheels = [
 ]
 
 [[package]]
-name = "sky-skills-tui"
+name = "sky"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

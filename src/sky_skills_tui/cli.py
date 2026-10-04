@@ -16,7 +16,9 @@ from .service import SkillsService
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="A Textual manager for npm skills lock files.")
+    result = argparse.ArgumentParser(
+        prog="sky", description="A Textual manager for npm skills lock files."
+    )
     result.add_argument("--version", action="version", version=__version__)
     result.add_argument("--project", type=Path, default=Path.cwd(), help="Project directory")
     commands = result.add_subparsers(dest="command")
@@ -61,7 +63,7 @@ def main() -> None:
                 print(
                     f"INCOMPATIBLE/UNVERIFIED skills version: {installed_version}. "
                     f"Supported: {', '.join(sorted(SUPPORTED_VERSIONS))}. "
-                    "Run sky-skills setup --upgrade."
+                    "Run sky setup --upgrade."
                 )
                 raise SystemExit(1)
         elif args.command == "list":
@@ -93,7 +95,7 @@ def main() -> None:
         else:
             SkillsApp(service).run()
     except (RuntimeError, OSError, ValueError, TimeoutError) as error:
-        print(f"sky-skills: {error}", file=sys.stderr)
+        print(f"sky: {error}", file=sys.stderr)
         raise SystemExit(1) from error
 
 

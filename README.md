@@ -1,24 +1,24 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# Sky Skills
+# Sky
 
 A Textual TUI for [npm skills](https://github.com/vercel-labs/skills), driven by its existing project and global lock files. Inspect origins and skill content, browse repositories, select a whole source, install in bulk, check for updates, restore missing installations, and remove skills.
 
 ```bash
-uv tool install .
-sky-skills
+uv tool install 'git+https://github.com/Yank-My-Chain/sky-skills-tui.git'
+sky
 ```
 
-Python 3.11+ and Git are required. Node and npm are included through `nodejs-wheel`; the supported npm `skills` release is installed privately on first launch. No global npm installation is needed. For unattended setup, run `sky-skills setup`.
+Python 3.11+ and Git are required. Node and npm are included through `nodejs-wheel`; the supported npm `skills` release is installed privately on first launch. No global npm installation is needed. For unattended setup, run `sky setup`.
 
 ```bash
-sky-skills --project ~/my-project
-sky-skills list --json
-sky-skills doctor
-sky-skills setup --upgrade
+sky --project ~/my-project
+sky list --json
+sky doctor
+sky setup --upgrade
 ```
 
-![Sky Skills library](assets/sky-skills.svg)
+![Sky library](assets/sky.svg)
 
 Press **Space** to select, **A** to select visible skills, **S** to select a source, **C** to check, and **U** to update. Enter a repository or local path in **Browse source** to select and install several skills at once. The target scope, agent names, and copy setting control installation and updates. Removal opens a review dialog.
 
@@ -29,6 +29,8 @@ The managed CLI is **skills 1.7.0**, verified by live contracts. Published npm b
 ## Development
 
 Hatch builds and manages environments, with uv as its installer.
+
+Install your local checkout for development with `uv tool install --editable .`, or use `uv tool install .` for a regular local installation. Run `uv run sky` directly from the development environment.
 
 ```bash
 uv sync

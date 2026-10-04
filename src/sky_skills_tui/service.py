@@ -220,7 +220,7 @@ class SkillsService:
                             skill.status = Status.UNSUPPORTED
                             skill.reason = "Original Git URL missing from lock; cannot infer host."
                         continue
-                    with tempfile.TemporaryDirectory(prefix="sky-skills-check-") as directory:
+                    with tempfile.TemporaryDirectory(prefix="sky-check-") as directory:
                         root = Path(directory) / "repo"
                         args = ["git", "clone", "--depth", "1", "--single-branch"]
                         if ref:

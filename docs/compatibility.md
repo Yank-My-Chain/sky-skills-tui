@@ -1,6 +1,6 @@
 # Locks and upstream compatibility
 
-The managed and tested release is **npm skills 1.7.0**. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime. A managed installation whose version differs from the supported release is reported explicitly; `sky-skills setup --upgrade` repairs it.
+The managed and tested release is **npm skills 1.7.0**. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime. A managed installation whose version differs from the supported release is reported explicitly; `sky setup --upgrade` repairs it.
 
 During development, 1.6.0 also passed the local CLI contract suite as a candidate, while 1.5.0 failed both lifecycle contracts because `add --json` did not produce the expected JSON array. Only 1.7.0 is declared supported; probing a candidate does not automatically enable it for normal use.
 
@@ -34,6 +34,12 @@ The tool cannot infer a maintainer's declared deprecation policy: **removed upst
 Source hashes are compared with upstream's algorithm. A small bundled Node helper preserves JavaScript `localeCompare` path ordering for SHA-256 hashes. Global GitHub entries with a 40-character tree SHA use the repository's Git tree object; 64-character hashes use file content. Checks clone Git sources into a temporary directory and remove it afterward. No lock or installation directory is changed by checking.
 
 ## Source support and limits
+
+Installation scope and source type are separate choices. **Project** scope installs into the current project and records `skills-lock.json`; **global** scope installs into your user directories and records the global `.skill-lock.json`. Either scope can use a Git repository as its source. A **local-path source** is a folder on disk, such as `./my-skills`, regardless of where its files are installed.
+
+In the published `skills` 1.7.0 package, `skills add ./my-skills --global` can install files but does not write a global lock entry. Its global lock-writing branch requires a normalized repository source identifier, which a local folder lacks. The project lock-writing branch does not have that requirement, so `skills add ./my-skills` records the source and folder hash correctly. This behavior is visible in the [1.7.0 install implementation](https://github.com/vercel-labs/skills/blob/v1.7.0/src/add.ts) and covered by Sky's live contracts.
+
+Sky blocks **local-path source + global scope** before installation because an untracked installation would lack the upstream provenance needed to manage it. This restriction does not apply to Git-based global installs or local-path project installs. An upstream fix can remove it once the new release passes the compatibility contracts.
 
 | Source | Browse/install | Check |
 | --- | --- | --- |

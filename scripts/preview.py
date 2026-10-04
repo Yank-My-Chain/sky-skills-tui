@@ -15,7 +15,7 @@ from sky_skills_tui.service import SkillsService
 
 async def main() -> None:
     os.environ.pop("NO_COLOR", None)
-    with tempfile.TemporaryDirectory(prefix="sky-skills-preview-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sky-preview-") as directory:
         project = Path(directory) / "my-project"
         home = Path(directory) / "home"
         project.mkdir()
@@ -67,7 +67,7 @@ async def main() -> None:
             app.activity("npm skills 1.7.0 ready · checked 6 skills across 3 sources")
             app.activity("vercel-react-best-practices: outdated — source folder changed")
             await pilot.pause()
-            app.save_screenshot("sky-skills.svg", path="assets")
+            app.save_screenshot("sky.svg", path="assets")
 
 
 if __name__ == "__main__":

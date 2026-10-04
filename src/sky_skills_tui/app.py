@@ -57,7 +57,7 @@ class ConfirmScreen(ModalScreen[bool]):
 
 
 class SkillsApp(App[None]):
-    TITLE = "Sky Skills"
+    TITLE = "Sky"
     SUB_TITLE = "Your skills, their sources, one place"
     CSS_PATH = "app.tcss"
     BINDINGS = [

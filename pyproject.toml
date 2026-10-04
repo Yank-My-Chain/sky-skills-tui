@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sky-skills-tui"
+name = "sky"
 version = "0.1.0"
 description = "A lockfile-driven Textual manager for the npm skills CLI"
 readme = "README.md"
@@ -12,8 +12,7 @@ license = "MIT"
 dependencies = ["textual>=6.0,<9", "platformdirs>=4.3,<5", "filelock>=3.19,<4", "pyyaml>=6.0,<7", "nodejs-wheel>=22.20,<25"]
 
 [project.scripts]
-sky-skills = "sky_skills_tui.cli:main"
-sky-skills-tui = "sky_skills_tui.cli:main"
+sky = "sky_skills_tui.cli:main"
 
 [dependency-groups]
 dev = ["hatch>=1.16", "pytest>=8", "pytest-asyncio>=1", "ruff>=0.13", "ty>=0.0.1", "zensical>=0.0.20"]
