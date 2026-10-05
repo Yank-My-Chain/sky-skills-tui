@@ -1,11 +1,13 @@
 """Live contracts for EVERY npm command used by the app; run against candidate releases."""
 
 import json
+import re
 import shutil
 
 import pytest
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Input, SelectionList, Static
 
+from sky_skills_tui.agents import AGENTS
 from sky_skills_tui.app import SkillsApp
 from sky_skills_tui.models import Status
 from sky_skills_tui.runtime import CommandError, CompatibilityError
@@ -14,6 +16,14 @@ from sky_skills_tui.upstream import json_rows
 from .git_server import git
 
 pytestmark = pytest.mark.integration
+
+
+async def test_agent_catalogue_matches_managed_cli(real_service):
+    cli = real_service.runtime.entry.parent.parent / "dist/cli.mjs"
+    source = cli.read_text(encoding="utf-8")
+    catalogue = source.split("const agents = {", 1)[1].split("\n};", 1)[0]
+    upstream = dict(re.findall(r'\n\t\tname: "([^"]+)",\n\t\tdisplayName: "([^"]+)"', catalogue))
+    assert upstream == dict(AGENTS)
 
 
 @pytest.mark.parametrize("scope,copy", [("project", False), ("global", True)])
@@ -122,6 +132,11 @@ async def test_pilot_real_full_loop(real_service, source):
         assert len(app.available_selected) == 3
         await pilot.click("#install")
         await pilot.pause()
+        await pilot.click("#choose-agents")
+        app.screen.query_one("#agent-list", SelectionList).select("claude-code")
+        await pilot.pause()
+        await pilot.click("#use-agents")
+        assert app.agent_preferences.load() == "codex claude-code"
         await pilot.click("#apply-install")
         await app.workers.wait_for_complete()
         await pilot.pause()

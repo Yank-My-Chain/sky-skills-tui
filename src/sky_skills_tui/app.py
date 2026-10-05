@@ -28,6 +28,7 @@ from textual.widgets import (
 )
 
 from .models import Skill, Status
+from .preferences import AgentPreferences
 from .presentation import SkillMarkdown, shortcut_label, split_frontmatter
 from .runtime import SKILLS_VERSION
 from .screens import ActivityScreen, HelpScreen, InstallOptions, InstallScreen
@@ -109,7 +110,8 @@ class SkillsApp(App[None]):
         self.available_selected: set[str] = set()
         self.busy = False
         self.catalog = False
-        self.install_options = InstallOptions()
+        self.agent_preferences = AgentPreferences()
+        self.install_options = InstallOptions(agents=self.agent_preferences.load())
         self.messages: list[str] = []
         self._preview_key: tuple[str, str] | None = None
         self._preview_body = "No skill selected."
@@ -603,10 +605,24 @@ class SkillsApp(App[None]):
 
         self.push_screen(
             InstallScreen(
-                [s.name for s in skills], self.install_options, catalog=self.catalog, update=update
+                [s.name for s in skills],
+                self.install_options,
+                catalog=self.catalog,
+                update=update,
+                on_agents_chosen=self.remember_agents,
             ),
             configured,
         )
+
+    def remember_agents(self, agents: str) -> None:
+        self.install_options.agents = agents
+        try:
+            self.agent_preferences.save(agents)
+        except OSError as error:
+            self.activity(f"Could not save agent defaults: {error}")
+            self.notify(
+                "Agent defaults could not be saved; kept for this session.", severity="warning"
+            )
 
     async def install(self, skills: list[Skill], agents: list[str], copy: bool) -> str:
         message = await self.service.install(skills, agents, copy=copy)

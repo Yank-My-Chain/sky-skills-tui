@@ -1,14 +1,30 @@
 """Focused dialogs for installation settings, help, and operation history."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Key
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Markdown, RichLog, Select, Static
+from textual.strip import Strip
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Input,
+    Label,
+    Markdown,
+    OptionList,
+    RichLog,
+    Select,
+    SelectionList,
+    Static,
+)
+from textual.widgets.selection_list import Selection
 
+from .agents import AGENT_IDS, AGENTS, COMMON_AGENTS, agent_summary, agent_targets, selected_agents
 from .presentation import shortcut_label
 
 HELP = """# Using Sky
@@ -30,6 +46,8 @@ selection, it checks every visible skill. It does not change installed files.
 **U · Update** reinstalls selected skills, or the highlighted skill, from their
 recorded sources. **I · Restore** reinstalls missing or existing tracked skills.
 Both open installation settings so you can choose agents and copy mode.
+**Choose agents…** opens a searchable checkbox list with common agents first.
+**Use selection** saves agent defaults for future Sky launches; Escape cancels.
 
 **D · Remove** reviews selected skills (or the highlighted skill) before removal.
 **R · Refresh** reloads lock files and installation locations.
@@ -95,13 +113,136 @@ class InstallOptions:
     copy: bool = False
 
 
+class AgentSelectionList(SelectionList[str]):
+    """One keyboard list with a disabled, unmarked divider after common targets."""
+
+    DIVIDER = "__common_divider__"
+
+    def render_line(self, y: int) -> Strip:
+        index = self.scroll_offset.y + y
+        if index < self.option_count and self.get_option_at_index(index).value == self.DIVIDER:
+            return OptionList.render_line(self, y)
+        return super().render_line(y)
+
+
+class AgentPickerScreen(ModalScreen[str | None]):
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, agents: str) -> None:
+        super().__init__()
+        self.targets = selected_agents(agents)
+        self.shown: set[str] = set()
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="agent-dialog"):
+            yield Label("Target agents", classes="dialog-title")
+            yield Input(placeholder="Find agent…", id="agent-search")
+            yield Static("", id="agent-count", markup=False)
+            with Horizontal(id="agent-toolbar"):
+                yield Button(f"Select all {len(AGENTS)}", id="all-agents")
+                yield Button("Clear", id="clear-agents")
+            yield AgentSelectionList(id="agent-list")
+            yield Static("No matching agents.", id="agent-empty")
+            yield Static("All includes agents not installed on this machine.", classes="muted")
+            with Horizontal(classes="dialog-actions"):
+                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel-agents")
+                yield Button("Use selection", id="use-agents", variant="primary")
+
+    def on_mount(self) -> None:
+        self.render_agents()
+        self.query_one("#agent-search").focus()
+
+    def render_agents(self) -> None:
+        query = self.query_one("#agent-search", Input).value.strip().casefold()
+        agents = [(key, name) for key, name in AGENTS if query in f"{key} {name}".casefold()]
+        self.shown = {key for key, _ in agents}
+        choices = self.query_one("#agent-list", AgentSelectionList)
+        selections = [
+            Selection(
+                name if key != "universal" else "Universal · shared .agents directory",
+                key,
+                key in self.targets,
+            )
+            for key, name in agents
+        ]
+        if not query:
+            selections.insert(
+                len(COMMON_AGENTS),
+                Selection(Text("─" * 54, style="dim"), AgentSelectionList.DIVIDER, disabled=True),
+            )
+        with choices.prevent(SelectionList.SelectedChanged):
+            choices.clear_options()
+            choices.add_options(selections)
+        choices.highlighted = 0 if agents else None
+        self.query_one("#agent-empty").display = not agents
+        self.update_count()
+
+    def update_count(self) -> None:
+        shown = len(self.shown)
+        description = (
+            f"{len(AGENTS)} available · common agents first"
+            if shown == len(AGENTS)
+            else f"{shown} of {len(AGENTS)} shown"
+        )
+        self.query_one("#agent-count", Static).update(
+            f"{len(self.targets)} selected · {description}"
+        )
+        self.query_one("#use-agents", Button).disabled = not self.targets
+
+    @on(Input.Changed, "#agent-search")
+    def filter_agents(self) -> None:
+        self.render_agents()
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "down" and self.query_one("#agent-search").has_focus and self.shown:
+            self.query_one("#agent-list").focus()
+            event.stop()
+            event.prevent_default()
+
+    @on(SelectionList.SelectedChanged, "#agent-list")
+    def selection_changed(self) -> None:
+        self.targets.difference_update(self.shown)
+        self.targets.update(self.query_one("#agent-list", AgentSelectionList).selected)
+        self.targets.intersection_update(AGENT_IDS)
+        self.update_count()
+
+    @on(Button.Pressed, "#all-agents")
+    def select_all_agents(self) -> None:
+        self.targets = set(AGENT_IDS)
+        self.render_agents()
+
+    @on(Button.Pressed, "#clear-agents")
+    def clear_agents(self) -> None:
+        self.targets.clear()
+        self.render_agents()
+
+    @on(Button.Pressed, "#cancel-agents")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#use-agents")
+    def apply(self) -> None:
+        if self.targets:
+            self.dismiss(agent_targets(self.targets))
+
+
 class InstallScreen(ModalScreen[InstallOptions | None]):
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self, names: list[str], options: InstallOptions, *, catalog: bool, update: bool):
+    def __init__(
+        self,
+        names: list[str],
+        options: InstallOptions,
+        *,
+        catalog: bool,
+        update: bool,
+        on_agents_chosen: Callable[[str], None] | None = None,
+    ):
         super().__init__()
         self.names, self.options, self.catalog = names, options, catalog
         self.verb = "Update" if update else ("Install" if catalog else "Restore")
+        self.agents = options.agents
+        self.on_agents_chosen = on_agents_chosen
 
     def compose(self) -> ComposeResult:
         with Vertical(id="install-dialog"):
@@ -121,10 +262,10 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                     )
                 else:
                     yield Static("Uses each skill's recorded source and scope.", classes="muted")
-                yield Label("Target agents · separate names with spaces")
-                yield Input(
-                    value=self.options.agents, placeholder="codex claude-code cursor", id="agents"
-                )
+                yield Label("Target agents")
+                with Horizontal(id="agent-summary-row"):
+                    yield Static(agent_summary(self.agents), id="agent-summary", markup=False)
+                    yield Button("Choose agents…", id="choose-agents")
                 yield Checkbox("Copy files instead of linking", value=self.options.copy, id="copy")
                 yield Static(
                     "Links share one installation. Copies are independent.", classes="muted"
@@ -135,24 +276,33 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 yield Button(self.verb, id="apply-install", variant="primary")
 
     def on_mount(self) -> None:
-        self.query_one("#target-scope" if self.catalog else "#agents").focus()
+        self.query_one("#target-scope" if self.catalog else "#choose-agents").focus()
+
+    @on(Button.Pressed, "#choose-agents")
+    def choose_agents(self) -> None:
+        def chosen(agents: str | None) -> None:
+            if agents is not None:
+                self.agents = agents
+                self.query_one("#agent-summary", Static).update(agent_summary(agents))
+                if self.on_agents_chosen is not None:
+                    self.on_agents_chosen(agents)
+            self.query_one("#choose-agents").focus()
+
+        self.app.push_screen(AgentPickerScreen(self.agents), chosen)
 
     @on(Button.Pressed, "#cancel")
     def action_cancel(self) -> None:
         self.dismiss(None)
 
     @on(Button.Pressed, "#apply-install")
-    @on(Input.Submitted, "#agents")
     def apply(self) -> None:
-        agents = self.query_one("#agents", Input).value.strip()
-        names = agents.replace(",", " ").split()
-        if not names or any(a.startswith("-") for a in names):
-            self.query_one("#install-error", Static).update("Enter valid agent names, e.g. codex.")
-            self.query_one("#agents").focus()
+        if not selected_agents(self.agents):
+            self.query_one("#install-error", Static).update("Choose at least one target agent.")
+            self.query_one("#choose-agents").focus()
             return
         scope = (
             str(self.query_one("#target-scope", Select).value)
             if self.catalog
             else self.options.scope
         )
-        self.dismiss(InstallOptions(scope, agents, self.query_one("#copy", Checkbox).value))
+        self.dismiss(InstallOptions(scope, self.agents, self.query_one("#copy", Checkbox).value))

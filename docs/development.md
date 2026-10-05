@@ -43,6 +43,8 @@ Before supporting a release:
 
 Normal runtime use never opts into unverified versions. Tests opt in explicitly with `allow_unverified=True`, isolating their npm prefix by version.
 
+`agents.py` records identifiers and display names from the published managed CLI's agent catalogue. The live `test_agent_catalogue_matches_managed_cli` contract checks that metadata against the installed package. Update the catalogue when changing the supported release; the picker never fetches agent metadata when opening a dialog.
+
 ## Architecture
 
 `models.py` reads upstream locks. `runtime.py` prepares the private npm package and runs bounded subprocesses. `upstream.py` validates the JSON boundary. `service.py` groups operations and compares source snapshots. `app.py` renders the library and catalogs, keeps selections by scope/name, and runs service operations as Textual workers. `cli.py` exposes launch, setup, list and diagnostics.

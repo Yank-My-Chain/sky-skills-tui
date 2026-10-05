@@ -26,6 +26,7 @@ async def main() -> None:
         project.mkdir()
         home.mkdir()
         os.environ["XDG_STATE_HOME"] = str(home / ".local/state")
+        os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
         entries = {}
         for name, source in [
             ("web-design-guidelines", "vercel-labs/agent-skills"),
@@ -96,7 +97,13 @@ async def main() -> None:
             await pilot.press("escape", "u")
             await pilot.pause()
             app.save_screenshot("install-options.svg", path=str(args.output))
-            await pilot.press("escape")
+            await pilot.click("#choose-agents")
+            await pilot.pause()
+            app.save_screenshot("agent-picker.svg", path=str(args.output))
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            app.save_screenshot("compact-agent-picker.svg", path=str(args.output))
+            await pilot.press("escape", "escape")
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
             app.save_screenshot("compact.svg", path=str(args.output))

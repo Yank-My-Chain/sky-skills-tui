@@ -52,7 +52,7 @@ MarkdownH3 { color: $text; text-style: bold; }
 .narrow #workspace { padding: 0 1; }
 .narrow #activity, .narrow #help { display: none; }
 .narrow #actions Button { padding: 0; }
-ConfirmScreen, InstallScreen, HelpScreen, ActivityScreen { align: center middle; background: $background 70%; }
+ConfirmScreen, InstallScreen, AgentPickerScreen, HelpScreen, ActivityScreen { align: center middle; background: $background 70%; }
 #confirm-dialog, #install-dialog, .reader-dialog { max-width: 90%; max-height: 90%; padding: 1 2; border: round $accent; background: $surface; }
 #confirm-dialog, #install-dialog { width: 68; height: auto; }
 #confirm-dialog Static { margin: 1 0; height: auto; max-height: 12; overflow-y: auto; }
@@ -69,3 +69,15 @@ ConfirmScreen, InstallScreen, HelpScreen, ActivityScreen { align: center middle;
 .muted { color: $text-muted; height: auto; }
 #install-fields { height: auto; max-height: 14; }
 #install-dialog .dialog-actions { margin-top: 0; }
+#agent-summary-row { height: 3; }
+#agent-summary { width: 1fr; height: 3; content-align: left middle; }
+#choose-agents { margin-right: 0; }
+#agent-dialog { width: 68; height: 90%; max-width: 90%; max-height: 90%; padding: 0 2; border: round $accent; background: $surface; }
+#agent-dialog .dialog-title { margin-bottom: 0; }
+#agent-count { height: 1; }
+#agent-toolbar { height: 1; }
+#agent-toolbar Button { height: 1; border: none; padding: 0 1; color: $accent; }
+#agent-dialog .dialog-actions { margin-top: 0; }
+#agent-list { height: 1fr; min-height: 3; border: round $border-blurred; padding: 0; margin-bottom: 1; background: $surface; }
+#agent-list:focus { border: round $accent; }
+#agent-empty { height: 1; color: $text-muted; }
