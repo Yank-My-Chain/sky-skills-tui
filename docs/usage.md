@@ -4,7 +4,7 @@ Launch `sky` inside a project, or pass `--project`. The app reads that project's
 
 ## Inspect installed skills
 
-Move through rows with the arrow keys. Each row shows the skill and source, with status and scope alongside. **Details** shows the source, branch, status and agents; **Metadata** holds paths, raw lock fields and SKILL.md frontmatter.
+Move through rows with the arrow keys. Each row shows the skill and source, with status and scope alongside. **Details** shows the source, branch, status and agents; **Metadata** holds paths, raw lock fields and SKILL.md frontmatter. Action buttons underline their keyboard shortcut; when the key is absent from the action name, it appears after the label.
 
 Choose **Read skill** or press **V** to open the formatted **SKILL.md** preview. Use the mouse wheel, arrows, Page Up/Down or Home/End to scroll. YAML frontmatter is separated from the instructions so it is not rendered as a Markdown heading. Tab and Shift+Tab move between controls; Escape returns focus to the list.
 

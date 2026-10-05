@@ -9,6 +9,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Markdown, RichLog, Select, Static
 
+from .presentation import shortcut_label
+
 HELP = """# Using Sky
 
 ## Read and select
@@ -52,7 +54,7 @@ class HelpScreen(ModalScreen[None]):
         with Vertical(classes="reader-dialog"):
             with VerticalScroll(id="help-scroll", can_focus=True):
                 yield Markdown(HELP)
-            yield Button("Close · Esc", id="close")
+            yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
 
     def on_mount(self) -> None:
         self.query_one("#help-scroll").focus()
@@ -73,7 +75,7 @@ class ActivityScreen(ModalScreen[None]):
         with Vertical(classes="reader-dialog"):
             yield Label("Activity", classes="dialog-title")
             yield RichLog(id="activity-log", wrap=True, markup=False, max_lines=300)
-            yield Button("Close · Esc", id="close")
+            yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
 
     def on_mount(self) -> None:
         log = self.query_one(RichLog)
@@ -129,7 +131,7 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 )
                 yield Static("", id="install-error", markup=False)
             with Horizontal(classes="dialog-actions"):
-                yield Button("Cancel", id="cancel")
+                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
                 yield Button(self.verb, id="apply-install", variant="primary")
 
     def on_mount(self) -> None:

@@ -4,6 +4,19 @@ import re
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import Heading, Markdown
+from rich.text import Text
+
+
+def shortcut_label(label: str, key: str) -> Text:
+    """Underline the bound key, appending it when it isn't in the action name."""
+    text = Text(label)
+    offset = label.casefold().find(key.casefold())
+    if offset < 0:
+        text.append(" · ")
+        text.append(key.upper(), style="underline")
+    else:
+        text.stylize("underline", offset, offset + len(key))
+    return text
 
 
 class SkillHeading(Heading):
