@@ -12,3 +12,5 @@ sky
 ```
 
 Start with [installation](installation.md), then [the TUI guide](usage.md). The [compatibility guide](compatibility.md) describes which sources support checks, how deprecation is determined, and how upstream changes are detected.
+
+See the [changelog](https://github.com/Yank-My-Chain/sky-skills-tui/blob/main/CHANGELOG.md) for release history and upcoming changes, and the [release policy](development.md#releases) for semantic versioning and compatibility.
