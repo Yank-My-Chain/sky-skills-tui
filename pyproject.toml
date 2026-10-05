@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sky"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A lockfile-driven Textual manager for the npm skills CLI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,9 @@ dev = ["hatch>=1.16", "pytest>=8", "pytest-asyncio>=1", "ruff>=0.13", "ty>=0.0.1
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sky_skills_tui"]
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.envs.default]
 installer = "uv"

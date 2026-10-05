@@ -1,5 +1,6 @@
 """Export a deterministic Textual screenshot without npm or user-home mutations."""
 
+import argparse
 import asyncio
 import json
 import os
@@ -14,6 +15,10 @@ from sky_skills_tui.service import SkillsService
 
 
 async def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, default=Path("assets"))
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
     os.environ.pop("NO_COLOR", None)
     with tempfile.TemporaryDirectory(prefix="sky-preview-") as directory:
         project = Path(directory) / "my-project"
@@ -38,7 +43,26 @@ async def main() -> None:
             }
             folder = project / ".agents/skills" / name
             folder.mkdir(parents=True)
-            (folder / "SKILL.md").write_text(f"# {name}\n\nExample installed instructions.")
+            (folder / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: Practical guidelines for your project.\n---\n\n"
+                "# React best practices\n\n"
+                "Guidelines for building readable, responsive React applications.\n\n"
+                "## When to use this skill\n\n"
+                "Use these instructions when writing components, reviewing a change, "
+                "or improving page performance.\n\n"
+                "## Keep components focused\n\n"
+                "- Give each component **one clear responsibility**.\n"
+                "- Keep state close to the code that uses it.\n"
+                "- Prefer derived values over duplicated state.\n\n"
+                "## Load independent data together\n\n"
+                "Start independent requests together to avoid unnecessary waiting.\n\n"
+                "```tsx\nconst [profile, posts] = await Promise.all([\n"
+                "  getProfile(userId),\n  getPosts(userId),\n]);\n```\n\n"
+                "## Review checklist\n\n"
+                + "\n\n".join(
+                    f"### Step {i}\n\nCheck loading, empty and error states." for i in range(1, 9)
+                )
+            )
         (project / "skills-lock.json").write_text(json.dumps({"version": 1, "skills": entries}))
         app = SkillsApp(SkillsService(project, home=home), bootstrap=False)
         async with app.run_test(size=(140, 42)) as pilot:
@@ -62,12 +86,23 @@ async def main() -> None:
             )
             app.query_one("#skills", DataTable).move_cursor(row=row)
             app.action_select_source()
-            details = app.query_one("#details", Static)
-            details.update(str(details.content).replace(str(project), "~/projects/my-project"))
             app.activity("npm skills 1.7.0 ready · checked 6 skills across 3 sources")
             app.activity("vercel-react-best-practices: outdated — source folder changed")
             await pilot.pause()
-            app.save_screenshot("sky.svg", path="assets")
+            app.save_screenshot("sky.svg", path=str(args.output))
+            await pilot.press("v")
+            await pilot.pause()
+            app.save_screenshot("skill-preview.svg", path=str(args.output))
+            await pilot.press("escape", "u")
+            await pilot.pause()
+            app.save_screenshot("install-options.svg", path=str(args.output))
+            await pilot.press("escape")
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            app.save_screenshot("compact.svg", path=str(args.output))
+            await pilot.press("v", "pagedown")
+            await pilot.pause()
+            app.save_screenshot("compact-preview.svg", path=str(args.output))
 
 
 if __name__ == "__main__":

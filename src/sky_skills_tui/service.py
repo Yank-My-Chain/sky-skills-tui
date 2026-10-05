@@ -241,6 +241,9 @@ class SkillsService:
                     )
 
     async def _compare(self, root: Path, skills: list[Skill], *, git: bool) -> None:
+        # macOS temporary directories may use /var, an alias of /private/var.
+        # Keep discovery, recorded paths and relative Git paths in the same namespace.
+        root = root.resolve()
         found = await asyncio.to_thread(discover, root)
         for skill in skills:
             recorded = skill.metadata.get("skillPath")

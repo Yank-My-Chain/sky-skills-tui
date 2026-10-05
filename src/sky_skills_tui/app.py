@@ -12,9 +12,9 @@ from textual.binding import Binding
 from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.events import Resize
 from textual.screen import ModalScreen
+from textual.theme import Theme
 from textual.widgets import (
     Button,
-    Checkbox,
     DataTable,
     Footer,
     Header,
@@ -29,7 +29,9 @@ from textual.widgets import (
 )
 
 from .models import Skill, Status
+from .presentation import split_frontmatter
 from .runtime import SKILLS_VERSION
+from .screens import ActivityScreen, HelpScreen, InstallOptions, InstallScreen
 from .service import SkillsService
 
 
@@ -62,22 +64,41 @@ class SkillsApp(App[None]):
     CSS_PATH = "app.tcss"
     BINDINGS = [
         Binding("space", "toggle_skill", "Select"),
-        Binding("a", "select_all", "Select visible"),
-        Binding("s", "select_source", "Select source"),
-        Binding("c", "check", "Check"),
-        Binding("u", "update", "Update"),
-        Binding("r", "refresh", "Refresh"),
-        Binding("b", "browse", "Browse", show=False),
+        Binding("a", "select_all", "Select visible", show=False),
+        Binding("s", "select_source", "Select source", show=False),
+        Binding("c", "check", "Check updates"),
+        Binding("u", "update", "Update", show=False),
+        Binding("r", "refresh", "Refresh", show=False),
+        Binding("b", "add_source", "Add skills", show=False),
         Binding("i", "install", "Install", show=False),
         Binding("d", "remove", "Remove", show=False),
         Binding("o", "select_outdated", "Select outdated", show=False),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_selection", "Clear", show=False),
+        Binding("v", "inspect", "Read skill"),
+        Binding("l", "activity", "Activity", show=False),
+        Binding("question_mark,f1", "help", "Help", key_display="?"),
         Binding("q", "quit", "Quit"),
     ]
 
     def __init__(self, service: SkillsService, *, bootstrap: bool = True) -> None:
         super().__init__()
+        self.register_theme(
+            Theme(
+                name="sky",
+                primary="#2c7883",
+                secondary="#90a4b0",
+                accent="#78c5ce",
+                foreground="#dbe4ec",
+                background="#101720",
+                surface="#19232f",
+                panel="#1d2a38",
+                success="#9abaac",
+                warning="#d9b879",
+                error="#d88f99",
+            )
+        )
+        self.theme = "sky"
         self.service = service
         self.bootstrap = bootstrap
         self.skills: list[Skill] = []
@@ -87,6 +108,9 @@ class SkillsApp(App[None]):
         self.available_selected: set[str] = set()
         self.busy = False
         self.catalog = False
+        self.install_options = InstallOptions()
+        self.messages: list[str] = []
+        self._preview_key: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -102,62 +126,88 @@ class SkillsApp(App[None]):
                     id="scope",
                 )
                 yield Input(placeholder="Filter name, source, status or agent…", id="filter")
-                yield Button("Refresh", id="refresh")
+                yield Button("Add skills", id="add-source", variant="primary")
             with Horizontal(id="source-bar"):
-                yield Input(
-                    placeholder="Browse a source: owner/repo, URL or local path", id="source"
-                )
-                yield Button("Browse source", id="browse", variant="primary")
-                yield Button("Library", id="library")
-            with Horizontal(id="targets"):
-                yield Label("Install to")
-                yield Select(
-                    [("Project", "project"), ("Global", "global")],
-                    value="project",
-                    allow_blank=False,
-                    id="target-scope",
-                )
-                yield Input(
-                    value="codex", placeholder="Agents, e.g. codex claude-code", id="agents"
-                )
-                yield Checkbox("Copy files", id="copy")
+                yield Input(placeholder="owner/repo, Git URL or local path", id="source")
+                yield Button("Browse", id="browse", variant="primary")
+                yield Button("Back to library", id="library")
             yield Static("Loading lock files…", id="summary", markup=False)
             with Horizontal(id="main"):
                 with Vertical(id="list-panel"):
                     yield DataTable(id="skills", cursor_type="row", zebra_stripes=True)
-                    yield Static("Space selects · A selects visible · S selects source", id="hint")
+                    yield Static(
+                        "No skills yet. Add a source to get started.", id="empty", markup=False
+                    )
+                    yield Static("Space select · A all visible · S same source", id="hint")
                 with Vertical(id="details-panel"):
-                    with TabbedContent():
+                    with TabbedContent(id="inspector-tabs"):
                         with TabPane("Details", id="details-tab"):
-                            with VerticalScroll():
+                            with VerticalScroll(id="details-scroll", can_focus=True):
                                 yield Static(
                                     "Choose a skill to inspect its origin.",
                                     id="details",
-                                    markup=False,
                                 )
                         with TabPane("SKILL.md", id="content-tab"):
-                            yield Markdown("Select an installed skill to read it.", id="content")
+                            with VerticalScroll(id="content-scroll", can_focus=True):
+                                yield Markdown(
+                                    "Select an installed skill to read it.", id="content"
+                                )
+                        with TabPane("Metadata", id="metadata-tab"):
+                            with VerticalScroll(id="metadata-scroll", can_focus=True):
+                                yield Static("", id="metadata", markup=False)
+            yield Static("", id="action-context", markup=False)
             with HorizontalScroll(id="actions"):
-                yield Button("Select visible", id="select-all")
-                yield Button("Select source", id="select-source")
-                yield Button("Check", id="check")
-                yield Button("Install / restore", id="install", variant="primary")
-                yield Button("Update", id="update", variant="success")
-                yield Button("Remove", id="remove", variant="error")
-            yield RichLog(id="log", wrap=True, markup=False, max_lines=300)
-            yield Static("Ready", id="operation", markup=False)
-        yield Footer()
+                yield Button("Check updates", id="check", variant="primary")
+                yield Button("Update", id="update")
+                yield Button("Restore", id="install")
+                yield Button("Remove…", id="remove")
+                yield Button("Read skill", id="inspect")
+                yield Button("Activity", id="activity")
+                yield Button("Help", id="help")
+            yield Static("Ready · ? for help", id="operation", markup=False)
+        yield Static(
+            "Sky needs at least 80 columns × 24 rows.\nResize the terminal to continue. Q quits.",
+            id="size-warning",
+        )
+        yield Footer(show_command_palette=False)
 
     def on_mount(self) -> None:
-        self.query_one("#skills", DataTable).add_columns("", "Skill", "Source", "Scope", "Status")
+        self.query_one("#list-panel").border_title = "Library"
+        self.query_one("#details-panel").border_title = "Skill inspector"
+        self.query_one("#source-bar").display = False
+        tips = {
+            "scope": "Show project skills, global skills, or both.",
+            "filter": "Filter by name, source, status or agent. Press / to focus.",
+            "add-source": "Browse a repository or local folder to install new skills (B).",
+            "check": "Compare selected or visible skills with their sources (C). No files change.",
+            "update": "Reinstall selected or highlighted skills from current source content (U).",
+            "install": "Choose agents and reinstall selected skills, or the highlighted skill (I).",
+            "remove": "Review selected skills, or the highlighted skill, before removal (D).",
+            "inspect": "Read the highlighted skill. Page Up/Down or mouse wheel scrolls (V).",
+            "activity": "Read the full operation history and error details (L).",
+            "help": "Explain actions and keyboard shortcuts (? or F1).",
+        }
+        for name, tip in tips.items():
+            self.query_one(f"#{name}").tooltip = tip
         self.load_inventory()
         self.query_one("#skills", DataTable).focus()
         if self.bootstrap:
             self.start_operation("Preparing npm skills runtime", self.prepare())
 
     def on_resize(self, event: Resize) -> None:
-        self.screen.set_class(event.size.height < 32, "short")
-        self.screen.set_class(event.size.width < 100, "narrow")
+        screen = self.screen_stack[0]
+        screen.set_class(event.size.height < 32, "short")
+        screen.set_class(event.size.width < 120, "narrow")
+        screen.set_class(event.size.width < 80 or event.size.height < 24, "too-small")
+        if self.query("#skills"):
+            self.call_after_refresh(self.render_rows)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if len(self.screen_stack) > 1:
+            return False
+        if action in {"toggle_skill", "select_all", "select_source", "select_outdated"}:
+            return isinstance(self.focused, DataTable)
+        return True
 
     async def prepare(self) -> str:
         version = await self.service.runtime.ensure()
@@ -199,7 +249,11 @@ class SkillsApp(App[None]):
     def render_rows(self) -> None:
         table = self.query_one("#skills", DataTable)
         row = table.cursor_row
-        table.clear()
+        table.clear(columns=True)
+        width = max(24, table.size.width - 31)
+        table.add_column("", width=1)
+        table.add_column("Skill / source", width=width)
+        table.add_column("Status / scope", width=22)
         scope = self.query_one("#scope", Select).value
         query = self.query_one("#filter", Input).value.casefold()
         candidates = self.available if self.catalog else self.skills
@@ -212,25 +266,35 @@ class SkillsApp(App[None]):
             )
         ]
         colors = {
-            Status.CURRENT: "green",
-            Status.OUTDATED: "yellow",
-            Status.DEPRECATED: "red",
-            Status.UNAVAILABLE: "magenta",
+            Status.CURRENT: self.current_theme.success or "green",
+            Status.OUTDATED: self.current_theme.warning or "yellow",
+            Status.DEPRECATED: self.current_theme.error or "red",
+            Status.UNAVAILABLE: self.current_theme.warning or "yellow",
         }
         for skill in self.visible_skills:
             state = "available" if self.catalog else str(skill.status)
+            location = skill.scope
             if not self.catalog and skill.installed_path is None:
-                state += " · not on disk"
+                location += " · not on disk"
             table.add_row(
-                Text("✓" if skill.key in self.selection else "○", style="cyan"),
-                Text(skill.name),
-                Text(skill.source),
-                Text(skill.scope),
-                Text(state, style=colors.get(skill.status, "dim")),
+                Text(
+                    "✓" if skill.key in self.selection else "○",
+                    style=self.current_theme.accent or "cyan",
+                ),
+                Text.assemble((skill.name, "bold"), "\n", (skill.source, "dim")),
+                Text.assemble((state, colors.get(skill.status, "")), "\n", (location, "dim")),
                 key=skill.key,
+                height=2,
             )
         if self.visible_skills:
             table.move_cursor(row=min(row, len(self.visible_skills) - 1))
+        self.query_one("#empty").display = not self.visible_skills
+        self.query_one("#skills").display = bool(self.visible_skills)
+        self.query_one("#empty", Static).update(
+            "No matching skills.\nClear the filter or change the scope."
+            if candidates
+            else "No skills yet.\nChoose Add skills to browse a repository."
+        )
         self.update_summary()
         self.show_details(self.focused_skill())
 
@@ -242,48 +306,101 @@ class SkillsApp(App[None]):
             f"   ·   {outdated} outdated"
         )
         installed = not self.catalog
+        chosen = self.chosen()
+        count = len(self.selection)
+        hidden = len(self.selection - {s.key for s in self.visible_skills})
+        target = f"{count} selected" if count else "highlighted skill"
+        if hidden:
+            target += f" ({hidden} hidden)"
+        check_target = f"{count} selected" if count else f"all {len(self.visible_skills)} visible"
+        self.query_one("#action-context", Static).update(
+            f"Install: {target} · choose scope and agents next"
+            if self.catalog
+            else f"Check: {check_target} · Other actions: {target}"
+        )
         for name in ("check", "update", "remove"):
-            self.query_one(f"#{name}", Button).disabled = self.busy or not installed
+            eligible = (
+                bool(self.chosen(fallback=False) or self.visible_skills)
+                if name == "check"
+                else bool(chosen)
+            )
+            self.query_one(f"#{name}", Button).disabled = self.busy or not installed or not eligible
+        self.query_one("#install", Button).disabled = self.busy or not chosen
+        self.query_one("#install", Button).label = "Install…" if self.catalog else "Restore…"
+        inspector = self.query_one("#inspect", Button)
+        inspector.disabled = not self.focused_skill()
+        inspector.label = (
+            "Back to list"
+            if (
+                self.screen_stack[0].has_class("narrow")
+                and self.screen_stack[0].has_class("reading")
+            )
+            else "Read skill"
+        )
+        self.query_one("#list-panel").border_title = "Source results" if self.catalog else "Library"
 
     def show_details(self, skill: Skill | None) -> None:
         if skill is None:
             self.query_one("#details", Static).update(
-                "No matching skills.\n\nBrowse a repository above to install skills, "
-                "or change the scope and filter. Existing lock files are discovered automatically."
+                "Choose a skill to inspect its source and installation."
             )
             self.query_one("#content", Markdown).update("No skill selected.")
+            self.query_one("#metadata", Static).update("")
+            self._preview_key = None
             return
-        details = [
-            skill.name,
-            "",
-            f"Source: {skill.source}",
-            f"Provider: {skill.source_type}",
-            f"Scope: {skill.scope}",
-            f"Ref: {skill.ref or 'default branch'}",
-            f"Status: {skill.status}",
-            skill.reason,
-            "",
-            f"Lock: {skill.lock_path}",
-            f"Path: {skill.installed_path or 'not on disk'}",
-            f"Agents: {', '.join(skill.agents) or 'not recorded'}",
-        ]
-        for key, value in skill.metadata.items():
-            if key not in {"source", "sourceType", "ref"}:
-                details.append(f"{key}: {value}")
+        details = Text()
+        details.append(skill.name + "\n", style="bold")
+        details.append(
+            ("Available to install" if self.catalog else str(skill.status).capitalize()) + "\n\n",
+            style="bold",
+        )
+        if not self.catalog:
+            details.append(skill.reason + "\n\n")
+        for label, value in (
+            ("Source", skill.source),
+            ("Scope", "Choose when installing" if self.catalog else skill.scope.capitalize()),
+            ("Branch", skill.ref or "Default branch"),
+            ("Agents", ", ".join(skill.agents) or "Not recorded"),
+        ):
+            details.append(label + "\n", style="dim")
+            details.append(value + "\n\n")
         if skill.description:
-            details.extend(["", skill.description])
-        self.query_one("#details", Static).update("\n".join(details))
-        content = "This skill is not installed. Install or restore it to read SKILL.md."
+            details.append(skill.description + "\n\n")
+        details.append("SKILL.md: instructions · Metadata: paths and lock details", style="dim")
+        self.query_one("#details", Static).update(details)
+        content = "This skill is not on disk. Choose Install or Restore to read SKILL.md."
         if skill.installed_path:
             try:
                 content = (skill.installed_path / "SKILL.md").read_text(encoding="utf-8")
             except (OSError, UnicodeError) as error:
                 content = f"Cannot read SKILL.md: {error}"
-        self.query_one("#content", Markdown).update(content)
+        frontmatter, body = split_frontmatter(content)
+        preview_key = (skill.key, content)
+        if preview_key != self._preview_key:
+            self.query_one("#content", Markdown).update(body or "This skill has no instructions.")
+            for name in ("content-scroll", "details-scroll", "metadata-scroll"):
+                self.query_one(f"#{name}", VerticalScroll).scroll_home(animate=False)
+            self._preview_key = preview_key
+        metadata = [
+            f"Lock file\n{skill.lock_path}",
+            f"Installed path\n{skill.installed_path or 'Not on disk'}",
+        ]
+        metadata.extend(f"{key}\n{value}" for key, value in skill.metadata.items())
+        if frontmatter:
+            metadata.append("SKILL.md frontmatter\n" + frontmatter)
+        self.query_one("#metadata", Static).update("\n\n".join(metadata))
+
+    @on(TabbedContent.TabActivated, "#inspector-tabs")
+    def inspector_tab(self, event: TabbedContent.TabActivated) -> None:
+        if event.pane and (
+            self.query_one("#details-panel").has_focus_within or self.screen.has_class("reading")
+        ):
+            self.query_one(f"#{event.pane.id.removesuffix('-tab')}-scroll").focus()
 
     @on(DataTable.RowHighlighted, "#skills")
     def highlight(self) -> None:
         self.show_details(self.focused_skill())
+        self.update_summary()
 
     @on(DataTable.RowSelected, "#skills")
     def row_selected(self) -> None:
@@ -305,8 +422,10 @@ class SkillsApp(App[None]):
             "refresh": self.action_refresh,
             "browse": self.action_browse,
             "library": self.action_library,
-            "select-all": self.action_select_all,
-            "select-source": self.action_select_source,
+            "add-source": self.action_add_source,
+            "inspect": self.action_inspect,
+            "activity": self.action_activity,
+            "help": self.action_help,
             "check": self.action_check,
             "install": self.action_install,
             "update": self.action_update,
@@ -341,14 +460,41 @@ class SkillsApp(App[None]):
         self.render_rows()
 
     def action_clear_selection(self) -> None:
+        if self.screen.has_class("reading") or self.query_one("#details-panel").has_focus_within:
+            self.screen.remove_class("reading")
+            self.query_one("#skills").focus()
+            self.update_summary()
+            return
         self.selection.clear()
         self.render_rows()
 
     def action_search(self) -> None:
         self.query_one("#filter", Input).focus()
 
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen())
+
+    def action_activity(self) -> None:
+        self.push_screen(ActivityScreen(self.messages))
+
+    def action_inspect(self) -> None:
+        if self.screen.has_class("narrow") and self.screen.has_class("reading"):
+            self.action_clear_selection()
+            return
+        if self.focused_skill():
+            self.screen.add_class("reading")
+            self.query_one("#inspector-tabs", TabbedContent).active = "content-tab"
+            self.call_after_refresh(self.query_one("#content-scroll").focus)
+            self.update_summary()
+
+    def action_add_source(self) -> None:
+        self.query_one("#source-bar").display = True
+        self.query_one("#source").focus()
+
     def action_library(self) -> None:
         self.catalog = False
+        self.query_one("#source-bar").display = False
+        self.query_one("#skills").focus()
         self.render_rows()
 
     def action_refresh(self) -> None:
@@ -367,7 +513,7 @@ class SkillsApp(App[None]):
         if not source and (current := self.focused_skill()):
             source = current.source_input
             self.query_one("#source", Input).value = source
-        scope = str(self.query_one("#target-scope", Select).value)
+        scope = self.install_options.scope
         self.start_operation("Browsing source", self.browse(source, scope))
 
     async def browse(self, source: str, scope: str) -> str:
@@ -376,7 +522,7 @@ class SkillsApp(App[None]):
         self.available_selected.clear()
         self.catalog = True
         self.query_one("#filter", Input).value = ""
-        return f"Found {len(skills)} skills. Select several or all, then Install / restore."
+        return f"Found {len(skills)} skills. Select several or all, then Install."
 
     def action_check(self) -> None:
         if self.busy or self.catalog:
@@ -412,20 +558,31 @@ class SkillsApp(App[None]):
         if not skills:
             self.activity("The chosen skills were removed upstream. Review them before removal.")
             return
-        if self.catalog:
-            scope = str(self.query_one("#target-scope", Select).value)
-            for skill in skills:
-                skill.metadata["targetScope"] = scope
-        agents = self.query_one("#agents", Input).value.replace(",", " ").split()
-        copy = self.query_one("#copy", Checkbox).value
-        self.start_operation(
-            f"{'Updating' if update else 'Installing'} {len(skills)} skill(s)",
-            self.install(skills, agents, copy),
+
+        def configured(options: InstallOptions | None) -> None:
+            if options is None:
+                return
+            self.install_options = options
+            if self.catalog:
+                for skill in skills:
+                    skill.metadata["targetScope"] = options.scope
+            agents = options.agents.replace(",", " ").split()
+            self.start_operation(
+                f"{'Updating' if update else 'Installing'} {len(skills)} skill(s)",
+                self.install(skills, agents, options.copy),
+            )
+
+        self.push_screen(
+            InstallScreen(
+                [s.name for s in skills], self.install_options, catalog=self.catalog, update=update
+            ),
+            configured,
         )
 
     async def install(self, skills: list[Skill], agents: list[str], copy: bool) -> str:
         message = await self.service.install(skills, agents, copy=copy)
         self.catalog = False
+        self.query_one("#source-bar").display = False
         self.available_selected.clear()
         self.load_inventory()
         await self.service.installed(self.skills)
@@ -453,7 +610,10 @@ class SkillsApp(App[None]):
         return message
 
     def activity(self, message: str) -> None:
-        self.query_one("#log", RichLog).write(Text(message))
+        self.messages.append(message)
+        del self.messages[:-300]
+        if isinstance(self.screen, ActivityScreen):
+            self.screen.query_one(RichLog).write(Text(message))
 
     def start_operation(self, label: str, operation: Awaitable[str]) -> None:
         if self.busy:
@@ -464,7 +624,8 @@ class SkillsApp(App[None]):
         self.query_one("#operation", Static).update(label + "…")
         self.activity(label + "…")
         for button in self.query(Button):
-            button.disabled = True
+            if button.id not in {"inspect", "activity", "help"}:
+                button.disabled = True
         self.run_worker(self.perform(operation), name=label, exit_on_error=False)
 
     async def perform(self, operation: Awaitable[str]) -> None:
@@ -475,8 +636,15 @@ class SkillsApp(App[None]):
         except Exception as error:
             message = f"{type(error).__name__}: {error}"
             self.activity(message)
-            self.query_one("#operation", Static).update("Operation failed — see activity log")
-            self.notify(str(error), title="Operation failed", severity="error", timeout=8)
+            self.query_one("#operation", Static).update(
+                "Operation failed · L opens activity details"
+            )
+            self.notify(
+                "Press L to read the error details and retry.",
+                title="Operation failed",
+                severity="error",
+                timeout=4,
+            )
             # A multi-source operation may have partially succeeded before failing.
             self.load_inventory()
         finally:
@@ -484,7 +652,8 @@ class SkillsApp(App[None]):
             for button in self.query(Button):
                 button.disabled = False
             self.render_rows()
-            self.query_one("#skills", DataTable).focus()
+            if len(self.screen_stack) == 1:
+                self.query_one("#skills", DataTable).focus()
 
     async def action_quit(self) -> None:
         if self.busy:

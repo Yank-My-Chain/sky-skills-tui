@@ -59,3 +59,56 @@ async def test_ambiguous_git_source_is_not_reinterpreted_as_github(isolated, tmp
     )
     await service.check([skill])
     assert skill.status == Status.UNSUPPORTED
+
+
+async def test_check_through_symlinked_temporary_directory(
+    isolated, git_source, tmp_path, monkeypatch
+):
+    """Reproduce macOS /var -> /private/var for both Git-tree and folder hashes."""
+    from pathlib import Path
+
+    from .git_server import git
+
+    home, project = isolated
+    url, source, _ = git_source
+    real_temp = tmp_path / "private-var"
+    real_temp.mkdir()
+    alias = tmp_path / "var"
+    alias.symlink_to(real_temp, target_is_directory=True)
+    monkeypatch.setattr("tempfile.tempdir", str(alias))
+    runtime = Runtime(tmp_path / "npm")
+    service = SkillsService(project, runtime, home)
+    folder_hash = await runtime.folder_hash(source / "alpha")
+    tree_hash = git("rev-parse", "HEAD:alpha", cwd=source).strip()
+    skills = [
+        Skill(
+            "alpha",
+            url,
+            scope,
+            project / "skills-lock.json",
+            {"sourceType": "git", "skillPath": "alpha/SKILL.md", hash_key: expected},
+        )
+        for scope, hash_key, expected in (
+            ("global", "skillFolderHash", tree_hash),
+            ("project", "computedHash", folder_hash),
+        )
+    ]
+    await service.check(skills)
+    assert [s.status for s in skills] == [Status.CURRENT, Status.CURRENT]
+    assert not list(Path(alias).iterdir())
+
+
+async def test_resolved_root_still_rejects_escaping_recorded_paths(isolated, source, tmp_path):
+    home, project = isolated
+    alias = tmp_path / "alias"
+    alias.symlink_to(source, target_is_directory=True)
+    skill = Skill(
+        "alpha",
+        str(alias),
+        "project",
+        project / "skills-lock.json",
+        {"sourceType": "local", "skillPath": "../outside/SKILL.md", "computedHash": "abc"},
+    )
+    await SkillsService(project, Runtime(tmp_path / "npm"), home).check([skill])
+    assert skill.status == Status.UNSUPPORTED
+    assert skill.reason == "Unsafe skillPath in lock."

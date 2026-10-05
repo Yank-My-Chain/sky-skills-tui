@@ -10,6 +10,8 @@ uv run hatch build
 
 The package uses Hatchling for wheel/sdist builds, Hatch environments configured with `installer = "uv"`, and a checked-in uv lock. Ruff checks and formats Python, ty checks types, and pytest runs unit and Pilot tests. CSS and the hash helper ship inside the wheel.
 
+Package versions come from Git tags through [Hatch VCS](https://github.com/ofek/hatch-vcs). A clean checkout tagged `v1.2.3` builds version `1.2.3`; commits after a tag get a development version. Use a clone with full history and tags when building from Git (CI fetches both). Source distributions preserve the version and can build wheels without Git metadata. `sky --version` reads the installed package metadata, so reinstall an editable checkout after changing tags or commits to refresh its reported version.
+
 ## Test layers
 
 Fast tests run with `uv run pytest`: lock loading and drift protection, source/ref handling, JSON and text adapters, health states, process cancellation, selection, filtering, source grouping, failure recovery, confirmation cancellation, and terminal sizes of 80×24 and 140×45. npm lifecycle tests are skipped unless explicitly enabled.
