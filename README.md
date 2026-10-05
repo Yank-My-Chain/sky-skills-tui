@@ -26,6 +26,8 @@ Project `skills-lock.json` (v1) and global `.skill-lock.json` (v3) remain the so
 
 The managed CLI is **skills 1.7.0**, verified by live contracts. Published npm behavior is tested directly. Global local-path installs are blocked because this release does not track them in its lock; use project scope or a Git URL. Well-known/download/npm sources have limited health checking. See [compatibility details](docs/compatibility.md).
 
+See the [changelog](CHANGELOG.md) for release history and upcoming changes. Sky releases use semantic versioning; the [release policy](docs/development.md#releases) explains version bumps and compatibility.
+
 ## Development
 
 Hatch builds and manages environments, with uv as its installer.

@@ -10,6 +10,7 @@ nav = [
   { "Using the TUI" = "usage.md" },
   { "Locks and compatibility" = "compatibility.md" },
   { "Development" = "development.md" },
+  { "Changelog" = "https://github.com/Yank-My-Chain/sky-skills-tui/blob/main/CHANGELOG.md" },
 ]
 
 [project.theme]
