@@ -20,7 +20,6 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    Markdown,
     RichLog,
     Select,
     Static,
@@ -29,7 +28,7 @@ from textual.widgets import (
 )
 
 from .models import Skill, Status
-from .presentation import split_frontmatter
+from .presentation import SkillMarkdown, split_frontmatter
 from .runtime import SKILLS_VERSION
 from .screens import ActivityScreen, HelpScreen, InstallOptions, InstallScreen
 from .service import SkillsService
@@ -83,6 +82,8 @@ class SkillsApp(App[None]):
 
     def __init__(self, service: SkillsService, *, bootstrap: bool = True) -> None:
         super().__init__()
+        # Keep tab changes and keyboard navigation immediate.
+        self.animation_level = "none"
         self.register_theme(
             Theme(
                 name="sky",
@@ -111,6 +112,8 @@ class SkillsApp(App[None]):
         self.install_options = InstallOptions()
         self.messages: list[str] = []
         self._preview_key: tuple[str, str] | None = None
+        self._preview_body = "No skill selected."
+        self._rendered_preview: tuple[tuple[str, str] | None, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -149,9 +152,7 @@ class SkillsApp(App[None]):
                                 )
                         with TabPane("SKILL.md", id="content-tab"):
                             with VerticalScroll(id="content-scroll", can_focus=True):
-                                yield Markdown(
-                                    "Select an installed skill to read it.", id="content"
-                                )
+                                yield Static("No skill selected.", id="content", markup=False)
                         with TabPane("Metadata", id="metadata-tab"):
                             with VerticalScroll(id="metadata-scroll", can_focus=True):
                                 yield Static("", id="metadata", markup=False)
@@ -201,6 +202,10 @@ class SkillsApp(App[None]):
         screen.set_class(event.size.width < 80 or event.size.height < 24, "too-small")
         if self.query("#skills"):
             self.call_after_refresh(self.render_rows)
+
+    def watch_theme(self) -> None:
+        if self.screen_stack and self.screen_stack[0].query("#content"):
+            self.call_after_refresh(self.render_preview)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if len(self.screen_stack) > 1:
@@ -344,9 +349,10 @@ class SkillsApp(App[None]):
             self.query_one("#details", Static).update(
                 "Choose a skill to inspect its source and installation."
             )
-            self.query_one("#content", Markdown).update("No skill selected.")
             self.query_one("#metadata", Static).update("")
             self._preview_key = None
+            self._preview_body = "No skill selected."
+            self.render_preview()
             return
         details = Text()
         details.append(skill.name + "\n", style="bold")
@@ -377,10 +383,11 @@ class SkillsApp(App[None]):
         frontmatter, body = split_frontmatter(content)
         preview_key = (skill.key, content)
         if preview_key != self._preview_key:
-            self.query_one("#content", Markdown).update(body or "This skill has no instructions.")
             for name in ("content-scroll", "details-scroll", "metadata-scroll"):
                 self.query_one(f"#{name}", VerticalScroll).scroll_home(animate=False)
             self._preview_key = preview_key
+        self._preview_body = body or "This skill has no instructions."
+        self.render_preview()
         metadata = [
             f"Lock file\n{skill.lock_path}",
             f"Installed path\n{skill.installed_path or 'Not on disk'}",
@@ -390,8 +397,26 @@ class SkillsApp(App[None]):
             metadata.append("SKILL.md frontmatter\n" + frontmatter)
         self.query_one("#metadata", Static).update("\n\n".join(metadata))
 
+    def render_preview(self) -> None:
+        screen = self.screen_stack[0]
+        if (
+            screen.query_one("#inspector-tabs", TabbedContent).active != "content-tab"
+            or not screen.query_one("#details-panel").display
+        ):
+            return
+        preview = (self._preview_key, self.theme)
+        if preview != self._rendered_preview:
+            screen.query_one("#content", Static).update(
+                SkillMarkdown(
+                    self._preview_body,
+                    code_theme="monokai" if self.current_theme.dark else "friendly",
+                )
+            )
+            self._rendered_preview = preview
+
     @on(TabbedContent.TabActivated, "#inspector-tabs")
     def inspector_tab(self, event: TabbedContent.TabActivated) -> None:
+        self.render_preview()
         if event.pane and (
             self.query_one("#details-panel").has_focus_within or self.screen.has_class("reading")
         ):
@@ -484,6 +509,7 @@ class SkillsApp(App[None]):
         if self.focused_skill():
             self.screen.add_class("reading")
             self.query_one("#inspector-tabs", TabbedContent).active = "content-tab"
+            self.render_preview()
             self.call_after_refresh(self.query_one("#content-scroll").focus)
             self.update_summary()
 

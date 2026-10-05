@@ -93,8 +93,9 @@ async def test_error_recovery_and_remove_cancel(tmp_path):
 
 @pytest.mark.parametrize("size", [(80, 24), (140, 45)])
 async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
+    from rich.markdown import Markdown
     from textual.containers import VerticalScroll
-    from textual.widgets import Markdown, Static
+    from textual.widgets import Static
 
     service = FakeService(tmp_path)
     folder = tmp_path / "alpha"
@@ -122,7 +123,8 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
         scroll = app.query_one("#content-scroll", VerticalScroll)
         assert app.focused is scroll
         assert scroll.max_scroll_y > 0
-        assert app.query_one("#content", Markdown)._markdown == body
+        preview = app.query_one("#content", Static).content
+        assert isinstance(preview, Markdown) and preview.markup == body
         assert "description: Example" in str(app.query_one("#metadata", Static).content)
         await pilot.press("pagedown")
         await pilot.pause()
@@ -145,6 +147,112 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
         assert scroll.scroll_y == old_scroll
         await pilot.press("escape")
         assert app.query_one("#skills").has_focus
+
+
+@pytest.mark.parametrize("size", [(80, 24), (140, 45)])
+async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
+    from unittest.mock import patch
+
+    from rich.markdown import Markdown
+    from textual.containers import VerticalScroll
+    from textual.widgets import DataTable, Static, TabbedContent
+
+    service = FakeService(tmp_path)
+    bodies = {}
+    for skill in service.rows[:2]:
+        folder = tmp_path / skill.name
+        folder.mkdir()
+        bodies[skill.name] = f"# {skill.name}\n\n" + "\n\n".join(
+            f"## Section {i}\n\n- **First** item\n- Second item\n\n"
+            "| Task | Status |\n| --- | --- |\n| Read | Ready |\n\n"
+            f"```python\nprint({i})\n```"
+            for i in range(20)
+        )
+        (folder / "SKILL.md").write_text(bodies[skill.name])
+        skill.installed_path = folder
+
+    app = SkillsApp(service, bootstrap=False)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        content = app.query_one("#content", Static)
+        table = app.query_one("#skills", DataTable)
+        tabs = app.query_one("#inspector-tabs", TabbedContent)
+        scroll = app.query_one("#content-scroll", VerticalScroll)
+        table.move_cursor(row=1)
+        await pilot.pause()
+        assert not isinstance(content.content, Markdown)
+
+        await pilot.press("v")
+        await pilot.pause()
+        beta = content.content
+        assert isinstance(beta, Markdown) and beta.markup == bodies["beta"]
+        assert not content.children
+        await pilot.press("pagedown")
+        await pilot.pause()
+        old_scroll = scroll.scroll_y
+        assert old_scroll > 0
+        with patch.object(tabs.query_one("Underline"), "animate") as animate:
+            await pilot.click(tabs.get_tab("metadata-tab"))
+            await pilot.pause()
+            await pilot.click(tabs.get_tab("content-tab"))
+            await pilot.pause()
+            animate.assert_not_called()
+        assert content.content is beta
+        assert scroll.scroll_y == old_scroll
+
+        # At narrow widths the content tab remains active behind the library.
+        await pilot.press("escape")
+        if size[0] >= 120:
+            tabs.active = "details-tab"
+        table.move_cursor(row=0)
+        await pilot.pause()
+        assert content.content is beta
+        await pilot.press("v")
+        await pilot.pause()
+        alpha = content.content
+        assert isinstance(alpha, Markdown) and alpha.markup == bodies["alpha"]
+        assert scroll.scroll_y == 0
+
+        tabs.active = "metadata-tab"
+        await pilot.pause()
+        changed_body = bodies["alpha"] + "\n\nUpdated instructions."
+        (tmp_path / "alpha" / "SKILL.md").write_text(changed_body)
+        app.render_rows()
+        app.theme = "textual-light"
+        await pilot.pause()
+        assert content.content is alpha
+        tabs.active = "content-tab"
+        await pilot.pause()
+        refreshed = content.content
+        assert isinstance(refreshed, Markdown) and refreshed.markup == changed_body
+        assert refreshed.code_theme == "friendly"
+        app.theme = "sky"
+        await pilot.pause()
+        refreshed = content.content
+        assert isinstance(refreshed, Markdown) and refreshed.code_theme == "monokai"
+
+        app.action_help()
+        app.theme = "textual-light"
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        refreshed = content.content
+        assert isinstance(refreshed, Markdown) and refreshed.code_theme == "friendly"
+
+        await pilot.press("escape")
+        await pilot.resize_terminal(80, 24)
+        table.move_cursor(row=1)
+        await pilot.pause()
+        assert content.content is refreshed
+        await pilot.resize_terminal(140, 45)
+        await pilot.pause()
+        resized = content.content
+        assert isinstance(resized, Markdown) and resized.markup == bodies["beta"]
+
+        app.query_one("#filter", Input).value = "unmatched"
+        await pilot.pause()
+        empty = content.content
+        assert isinstance(empty, Markdown) and empty.markup == "No skill selected."
 
 
 async def test_install_settings_help_and_activity(tmp_path):

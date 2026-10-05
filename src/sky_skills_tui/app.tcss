@@ -32,7 +32,7 @@ TabbedContent > ContentSwitcher { height: 1fr; }
 TabPane { height: 1fr; padding: 0; }
 #content-scroll, #details-scroll, #metadata-scroll { height: 1fr; scrollbar-gutter: stable; }
 VerticalScroll:focus { background-tint: $primary 3%; }
-Markdown { padding: 1 2; background: transparent; }
+#content, Markdown { padding: 1 2; background: transparent; }
 MarkdownH1 { content-align: left middle; border: none; text-align: left; margin: 1 0; padding: 0; color: $text; text-style: bold; }
 MarkdownH2 { border: none; margin: 1 0; padding: 0; color: $text; text-style: bold; }
 MarkdownH3 { color: $text; text-style: bold; }
