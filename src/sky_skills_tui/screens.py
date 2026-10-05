@@ -35,7 +35,8 @@ HELP = """# Using Sky
 **O** selects outdated skills. **Escape** clears selection or returns to the list.
 Selections survive filtering; the selected count includes hidden rows.
 
-**/** focuses search. **V** opens SKILL.md. **Tab / Shift+Tab** moves focus.
+**/** focuses search. **V · View skill** opens SKILL.md. At narrow widths,
+**V · Close view** returns to the list. **Tab / Shift+Tab** moves focus.
 In a preview, use **↑ / ↓, Page Up / Page Down, Home / End** or the mouse wheel.
 Use the Details, SKILL.md and Metadata tabs to switch views.
 
@@ -44,22 +45,22 @@ Use the Details, SKILL.md and Metadata tabs to switch views.
 selection, it checks every visible skill. It does not change installed files.
 
 **U · Update** reinstalls selected skills, or the highlighted skill, from their
-recorded sources. **I · Restore** reinstalls missing or existing tracked skills.
+recorded sources. **I · Reinstall** restores missing or existing tracked skills.
 Both open installation settings so you can choose agents and copy mode.
 **Choose agents…** opens a searchable checkbox list with common agents first.
 **Use selection** saves agent defaults for future Sky launches; Escape cancels.
 
-**D · Remove** reviews selected skills (or the highlighted skill) before removal.
+**D · Delete** reviews selected skills (or the highlighted skill) before deletion.
 **R · Refresh** reloads lock files and installation locations.
 
-## Add skills
-**B · Add skills** opens the source field. Enter an owner/repo, Git URL or local
+## Browse skills
+**B · Browse skills** opens the source field. Enter an owner/repo, Git URL or local
 path, then press Enter or Browse. Select skills in the results and choose
 **Install**. Choose Project (this project) or Global (all projects) in the dialog.
 **Back to library** returns to installed skills.
 
 ## Activity and help
-**L** opens operation history, including full error details. **? / F1** opens
+**L · Activity log** opens operation history, including full error details. **? / F1** opens
 this help. **Ctrl+P** opens the command palette, including theme selection.
 **Escape** closes a dialog. **Q** quits after an operation finishes.
 """
@@ -91,7 +92,7 @@ class ActivityScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="reader-dialog"):
-            yield Label("Activity", classes="dialog-title")
+            yield Label("Activity log", classes="dialog-title")
             yield RichLog(id="activity-log", wrap=True, markup=False, max_lines=300)
             yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
 
@@ -240,7 +241,7 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
     ):
         super().__init__()
         self.names, self.options, self.catalog = names, options, catalog
-        self.verb = "Update" if update else ("Install" if catalog else "Restore")
+        self.verb = "Update" if update else ("Install" if catalog else "Reinstall")
         self.agents = options.agents
         self.on_agents_chosen = on_agents_chosen
 

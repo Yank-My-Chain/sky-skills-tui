@@ -27,6 +27,8 @@ contract and release process.
 
 - Action buttons underline their keyboard shortcuts, including Escape on
   Cancel and Close buttons.
+- Button wording matches its letter shortcut: Browse skills (B), Reinstall (I),
+  Delete (D), View skill / Close view (V), and Activity log (L).
 
 ## [0.1.0] - 2026-10-04
 

@@ -20,7 +20,7 @@ sky setup --upgrade
 
 ![Sky library](assets/sky.svg)
 
-Press **Space** to select, **A** to select visible skills, **S** to select a source, **C** to check, and **U** to update. Choose **Add skills** to browse a repository or local path and install several skills at once. Installation settings explain scope, agents, and copy mode when you install or update. A searchable agent picker puts common targets first and remembers your confirmed selection across launches. Press **V** for the scrollable skill preview, **L** for activity, or **?** for help. The layout adapts down to 80 × 24 terminals. Removal opens a review dialog.
+Press **Space** to select, **A** to select visible skills, **S** to select a source, **C** to check, and **U** to update. Choose **Browse skills** to browse a repository or local path and install several skills at once. Installation settings explain scope, agents, and copy mode when you install or update. A searchable agent picker puts common targets first and remembers your confirmed selection across launches. Choose **View skill** (V) for the scrollable preview, **Activity log** (L) for operations, or **Help** (?) for help. Letter shortcuts are underlined within their button labels. The layout adapts down to 80 × 24 terminals. **Delete…** (D) opens a review dialog.
 
 Project `skills-lock.json` (v1) and global `.skill-lock.json` (v3) remain the source of truth. The app never migrates or rewrites locks itself. A confirmed missing skill is marked **removed upstream**; authentication failures, offline sources, and missing remote repositories are marked **source unavailable** because deletion cannot be confirmed. Old and future schemas remain visible and block mutations.
 
