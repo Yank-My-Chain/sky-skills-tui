@@ -28,7 +28,7 @@ from textual.widgets import (
 )
 
 from .models import Skill, Status
-from .presentation import SkillMarkdown, split_frontmatter
+from .presentation import SkillMarkdown, shortcut_label, split_frontmatter
 from .runtime import SKILLS_VERSION
 from .screens import ActivityScreen, HelpScreen, InstallOptions, InstallScreen
 from .service import SkillsService
@@ -46,7 +46,7 @@ class ConfirmScreen(ModalScreen[bool]):
             yield Label("Review removal", id="confirm-title")
             yield Static(self.message, markup=False)
             with Horizontal():
-                yield Button("Cancel", id="cancel")
+                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
                 yield Button("Remove skills", id="confirm", variant="error")
 
     @on(Button.Pressed)
@@ -129,7 +129,7 @@ class SkillsApp(App[None]):
                     id="scope",
                 )
                 yield Input(placeholder="Filter name, source, status or agent…", id="filter")
-                yield Button("Add skills", id="add-source", variant="primary")
+                yield Button(shortcut_label("Add skills", "b"), id="add-source", variant="primary")
             with Horizontal(id="source-bar"):
                 yield Input(placeholder="owner/repo, Git URL or local path", id="source")
                 yield Button("Browse", id="browse", variant="primary")
@@ -158,13 +158,13 @@ class SkillsApp(App[None]):
                                 yield Static("", id="metadata", markup=False)
             yield Static("", id="action-context", markup=False)
             with HorizontalScroll(id="actions"):
-                yield Button("Check updates", id="check", variant="primary")
-                yield Button("Update", id="update")
-                yield Button("Restore", id="install")
-                yield Button("Remove…", id="remove")
-                yield Button("Read skill", id="inspect")
-                yield Button("Activity", id="activity")
-                yield Button("Help", id="help")
+                yield Button(shortcut_label("Check updates", "c"), id="check", variant="primary")
+                yield Button(shortcut_label("Update", "u"), id="update")
+                yield Button(shortcut_label("Restore…", "i"), id="install")
+                yield Button(shortcut_label("Remove…", "d"), id="remove")
+                yield Button(shortcut_label("Read skill", "v"), id="inspect")
+                yield Button(shortcut_label("Activity", "l"), id="activity")
+                yield Button(shortcut_label("Help", "?"), id="help")
             yield Static("Ready · ? for help", id="operation", markup=False)
         yield Static(
             "Sky needs at least 80 columns × 24 rows.\nResize the terminal to continue. Q quits.",
@@ -331,16 +331,19 @@ class SkillsApp(App[None]):
             )
             self.query_one(f"#{name}", Button).disabled = self.busy or not installed or not eligible
         self.query_one("#install", Button).disabled = self.busy or not chosen
-        self.query_one("#install", Button).label = "Install…" if self.catalog else "Restore…"
+        self.query_one("#install", Button).label = shortcut_label(
+            "Install…" if self.catalog else "Restore…", "i"
+        )
         inspector = self.query_one("#inspect", Button)
         inspector.disabled = not self.focused_skill()
-        inspector.label = (
+        inspector.label = shortcut_label(
             "Back to list"
             if (
                 self.screen_stack[0].has_class("narrow")
                 and self.screen_stack[0].has_class("reading")
             )
-            else "Read skill"
+            else "Read skill",
+            "v",
         )
         self.query_one("#list-panel").border_title = "Source results" if self.catalog else "Library"
 
