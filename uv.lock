@@ -976,6 +976,7 @@ dependencies = [
     { name = "nodejs-wheel" },
     { name = "platformdirs" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "textual" },
 ]
 
@@ -995,6 +996,7 @@ requires-dist = [
     { name = "nodejs-wheel", specifier = ">=22.20,<25" },
     { name = "platformdirs", specifier = ">=4.3,<5" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "rich", specifier = ">=14,<16" },
     { name = "textual", specifier = ">=6.0,<9" },
 ]
 

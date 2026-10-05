@@ -9,7 +9,7 @@ description = "A lockfile-driven Textual manager for the npm skills CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["textual>=6.0,<9", "platformdirs>=4.3,<5", "filelock>=3.19,<4", "pyyaml>=6.0,<7", "nodejs-wheel>=22.20,<25"]
+dependencies = ["textual>=6.0,<9", "rich>=14,<16", "platformdirs>=4.3,<5", "filelock>=3.19,<4", "pyyaml>=6.0,<7", "nodejs-wheel>=22.20,<25"]
 
 [project.scripts]
 sky = "sky_skills_tui.cli:main"
