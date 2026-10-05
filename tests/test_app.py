@@ -8,6 +8,11 @@ from sky_skills_tui.models import Inventory, Skill, Status
 from sky_skills_tui.service import SkillsService
 
 
+@pytest.fixture(autouse=True)
+def preferences_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
 class FakeService(SkillsService):
     def __init__(self, project):
         super().__init__(project)
@@ -256,7 +261,7 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
 
 
 async def test_install_settings_help_and_activity(tmp_path):
-    from textual.widgets import Checkbox
+    from textual.widgets import Checkbox, SelectionList
 
     from sky_skills_tui.screens import ActivityScreen, HelpScreen, InstallScreen
 
@@ -288,7 +293,10 @@ async def test_install_settings_help_and_activity(tmp_path):
         scope = app.screen.query_one("#target-scope", Select)
         assert scope.region.contains_region(scope.query_one("SelectCurrent").region)
         scope.value = "global"
-        app.screen.query_one("#agents", Input).value = "codex claude-code"
+        await pilot.click("#choose-agents")
+        app.screen.query_one("#agent-list", SelectionList).select("claude-code")
+        await pilot.pause()
+        await pilot.click("#use-agents")
         app.screen.query_one("#copy", Checkbox).value = True
         assert app.screen.query_one("#install-dialog").content_region.contains_region(
             app.screen.query_one("#apply-install").region

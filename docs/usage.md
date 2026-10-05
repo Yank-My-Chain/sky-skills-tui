@@ -39,7 +39,11 @@ Selections survive filtering. The count includes hidden selected rows, and opera
 
 Choose **Add skills** (B), then enter an `owner/repo`, a repository URL, a branch-qualified source such as `owner/repo#release/v1`, or a local path. Press Enter or click **Browse** to load the upstream catalog. Select multiple rows, or press A to select the whole catalog.
 
-Choose **Install…** to open installation settings. Choose the target project/global scope, supply upstream agent identifiers such as `codex claude-code cursor`, and choose whether to copy files instead of linking. The dialog explains both modes. Install batches selected names by source and scope. Cancel or Escape leaves installations unchanged. The default target is Codex. An explicit `*` agent target asks upstream to install to all supported agents.
+Choose **Install…** to open installation settings. Choose the target project/global scope, select **Choose agents…**, and choose whether to copy files instead of linking. The dialog explains both modes. Install batches selected names by source and scope. Cancel or Escape leaves installations unchanged.
+
+The agent picker shows the supported targets from the managed CLI. Codex, GitHub Copilot, Cursor, Claude Code, Gemini CLI, and OpenCode appear first, followed by a subtle divider and the remaining agents alphabetically. Search matches display names and identifiers; selections survive filtering. Press **Down** from search to enter the list, use **↑ / ↓** to move and **Space / Enter** to toggle. **Select all 79** and **Clear** apply to the entire catalogue, including hidden rows. Selecting all asks upstream to install for every supported agent, even agents absent from this machine.
+
+**Use selection** confirms the agents and saves them as your default for subsequent installations, updates, restores, and future Sky launches across projects. It does not install anything. Cancel or Escape in the picker preserves your previous default. The initial default is Codex. Sky stores only agent defaults in its user configuration directory (`~/.config/sky/preferences.json` on Linux, respecting `XDG_CONFIG_HOME`); scope and copy mode remain session settings. These preferences do not modify upstream skill locks.
 
 After installation, the library reloads from upstream's newly written lock. Missing tracked installations can be restored with **Restore…** in the library. This restores from the recorded source/ref; a lock hash is not a commit pin, so it installs the current source content rather than guaranteeing byte-for-byte historical reproduction.
 
@@ -47,7 +51,7 @@ After installation, the library reloads from upstream's newly written lock. Miss
 
 Checking compares the source with the installed lock hash. It does not change files or locks. It fetches one snapshot for each source/ref, compares the whole folder including supporting files, and marks moved skills outdated. Git sources require Git; existing Git credentials and explicit environment settings pass through to upstream operations.
 
-**Update** opens installation settings, then reinstalls selected skills from their recorded sources and refs through `skills add`, refreshing upstream's locks. It uses the agent targets and copy setting you choose in that dialog; settings are remembered for the session. Those settings are explicit because the lock does not fully record installation mode or agent placement. Existing links to other agents are not removed; independent copies for other agents may need their own update. Confirmed removed skills are excluded from updating.
+**Update** opens installation settings, then reinstalls selected skills from their recorded sources and refs through `skills add`, refreshing upstream's locks. It uses your saved agent defaults and the copy setting you choose in that dialog. Those settings are explicit because the lock does not fully record installation mode or agent placement. Existing links to other agents are not removed; independent copies for other agents may need their own update. Confirmed removed skills are excluded from updating.
 
 ## Remove
 
