@@ -36,7 +36,10 @@ from .service import SkillsService
 
 
 class ConfirmScreen(ModalScreen[bool]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+enter,f2", "confirm", "Delete skills", show=False, priority=True),
+    ]
 
     def __init__(self, message: str) -> None:
         super().__init__()
@@ -44,11 +47,15 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-dialog"):
-            yield Label("Review removal", id="confirm-title")
+            yield Label("Review deletion", id="confirm-title")
             yield Static(self.message, markup=False)
             with Horizontal():
                 yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
-                yield Button("Remove skills", id="confirm", variant="error")
+                yield Button(
+                    shortcut_label("Delete skills · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
+                    id="confirm",
+                    variant="error",
+                )
 
     @on(Button.Pressed)
     def choose(self, event: Button.Pressed) -> None:
@@ -56,6 +63,9 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
 
 
 class SkillsApp(App[None]):
@@ -69,14 +79,14 @@ class SkillsApp(App[None]):
         Binding("c", "check", "Check updates"),
         Binding("u", "update", "Update", show=False),
         Binding("r", "refresh", "Refresh", show=False),
-        Binding("b", "add_source", "Add skills", show=False),
-        Binding("i", "install", "Install", show=False),
-        Binding("d", "remove", "Remove", show=False),
+        Binding("b", "add_source", "Browse skills", show=False),
+        Binding("i", "install", "Install / reinstall", show=False),
+        Binding("d", "remove", "Delete", show=False),
         Binding("o", "select_outdated", "Select outdated", show=False),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_selection", "Clear", show=False),
-        Binding("v", "inspect", "Read skill"),
-        Binding("l", "activity", "Activity", show=False),
+        Binding("v", "inspect", "View skill"),
+        Binding("l", "activity", "Activity log", show=False),
         Binding("question_mark,f1", "help", "Help", key_display="?"),
         Binding("q", "quit", "Quit"),
     ]
@@ -131,7 +141,9 @@ class SkillsApp(App[None]):
                     id="scope",
                 )
                 yield Input(placeholder="Filter name, source, status or agent…", id="filter")
-                yield Button(shortcut_label("Add skills", "b"), id="add-source", variant="primary")
+                yield Button(
+                    shortcut_label("Browse skills", "b"), id="add-source", variant="primary"
+                )
             with Horizontal(id="source-bar"):
                 yield Input(placeholder="owner/repo, Git URL or local path", id="source")
                 yield Button("Browse", id="browse", variant="primary")
@@ -162,10 +174,10 @@ class SkillsApp(App[None]):
             with HorizontalScroll(id="actions"):
                 yield Button(shortcut_label("Check updates", "c"), id="check", variant="primary")
                 yield Button(shortcut_label("Update", "u"), id="update")
-                yield Button(shortcut_label("Restore…", "i"), id="install")
-                yield Button(shortcut_label("Remove…", "d"), id="remove")
-                yield Button(shortcut_label("Read skill", "v"), id="inspect")
-                yield Button(shortcut_label("Activity", "l"), id="activity")
+                yield Button(shortcut_label("Reinstall…", "i"), id="install")
+                yield Button(shortcut_label("Delete…", "d"), id="remove")
+                yield Button(shortcut_label("View skill", "v"), id="inspect")
+                yield Button(shortcut_label("Activity log", "l"), id="activity")
                 yield Button(shortcut_label("Help", "?"), id="help")
             yield Static("Ready · ? for help", id="operation", markup=False)
         yield Static(
@@ -185,8 +197,8 @@ class SkillsApp(App[None]):
             "check": "Compare selected or visible skills with their sources (C). No files change.",
             "update": "Reinstall selected or highlighted skills from current source content (U).",
             "install": "Choose agents and reinstall selected skills, or the highlighted skill (I).",
-            "remove": "Review selected skills, or the highlighted skill, before removal (D).",
-            "inspect": "Read the highlighted skill. Page Up/Down or mouse wheel scrolls (V).",
+            "remove": "Review selected skills, or the highlighted skill, before deletion (D).",
+            "inspect": "View the highlighted skill. Page Up/Down or mouse wheel scrolls (V).",
             "activity": "Read the full operation history and error details (L).",
             "help": "Explain actions and keyboard shortcuts (? or F1).",
         }
@@ -300,7 +312,7 @@ class SkillsApp(App[None]):
         self.query_one("#empty", Static).update(
             "No matching skills.\nClear the filter or change the scope."
             if candidates
-            else "No skills yet.\nChoose Add skills to browse a repository."
+            else "No skills yet.\nChoose Browse skills to explore a repository."
         )
         self.update_summary()
         self.show_details(self.focused_skill())
@@ -334,17 +346,17 @@ class SkillsApp(App[None]):
             self.query_one(f"#{name}", Button).disabled = self.busy or not installed or not eligible
         self.query_one("#install", Button).disabled = self.busy or not chosen
         self.query_one("#install", Button).label = shortcut_label(
-            "Install…" if self.catalog else "Restore…", "i"
+            "Install…" if self.catalog else "Reinstall…", "i"
         )
         inspector = self.query_one("#inspect", Button)
         inspector.disabled = not self.focused_skill()
         inspector.label = shortcut_label(
-            "Back to list"
+            "Close view"
             if (
                 self.screen_stack[0].has_class("narrow")
                 and self.screen_stack[0].has_class("reading")
             )
-            else "Read skill",
+            else "View skill",
             "v",
         )
         self.query_one("#list-panel").border_title = "Source results" if self.catalog else "Library"
@@ -379,7 +391,7 @@ class SkillsApp(App[None]):
             details.append(skill.description + "\n\n")
         details.append("SKILL.md: instructions · Metadata: paths and lock details", style="dim")
         self.query_one("#details", Static).update(details)
-        content = "This skill is not on disk. Choose Install or Restore to read SKILL.md."
+        content = "This skill is not on disk. Choose Install or Reinstall to view SKILL.md."
         if skill.installed_path:
             try:
                 content = (skill.installed_path / "SKILL.md").read_text(encoding="utf-8")
@@ -639,7 +651,7 @@ class SkillsApp(App[None]):
         skills = self.chosen()
         if not skills:
             return
-        message = "Remove these skills and their agent links?\n\n" + "\n".join(
+        message = "Delete these skills and their agent links?\n\n" + "\n".join(
             f"• {s.name} ({s.scope})" for s in skills
         )
 

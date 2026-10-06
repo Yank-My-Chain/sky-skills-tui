@@ -8,7 +8,12 @@ from textual.widgets import Button, Input, Static
 from sky_skills_tui.agents import AGENT_IDS, AGENTS, COMMON_AGENTS, selected_agents
 from sky_skills_tui.app import SkillsApp
 from sky_skills_tui.preferences import AgentPreferences
-from sky_skills_tui.screens import AgentPickerScreen, AgentSelectionList, InstallScreen
+from sky_skills_tui.screens import (
+    AgentPickerScreen,
+    AgentSelectionList,
+    InstallOptions,
+    InstallScreen,
+)
 from sky_skills_tui.service import SkillsService
 
 
@@ -23,6 +28,7 @@ async def test_picker_filters_preserve_hidden_choices_and_divider_navigation(iso
         picker = app.screen
         assert isinstance(picker, AgentPickerScreen)
         choices = picker.query_one(AgentSelectionList)
+        assert "Ctrl+Enter / F2" in str(picker.query_one("#use-agents", Button).label)
         assert [choices.get_option_at_index(i).value for i in range(6)] == list(COMMON_AGENTS)
         assert choices.get_option_at_index(6).disabled
         choices.focus()
@@ -50,10 +56,11 @@ async def test_picker_filters_preserve_hidden_choices_and_divider_navigation(iso
         assert picker.targets == {"codex", "claude-code"}
         assert not picker.query_one("#use-agents", Button).disabled
         search.value = ""
+        search.focus()
         await pilot.pause()
         assert set(choices.selected) == {"codex", "claude-code"}
         assert choices.option_count == len(AGENTS) + 1
-        await pilot.click("#use-agents")
+        await pilot.press("ctrl+enter")
         assert results == ["codex claude-code"]
         assert not app.busy
 
@@ -70,13 +77,19 @@ async def test_all_and_clear_apply_to_catalogue_while_filtered(isolated):
         assert picker.targets == AGENT_IDS
         picker.query_one("#agent-search", Input).value = "cursor"
         await pilot.pause()
-        await pilot.click("#clear-agents")
+        search = picker.query_one("#agent-search", Input)
+        search.focus()
+        await pilot.press("alt+c")
         assert not picker.targets
         assert picker.query_one("#use-agents", Button).disabled
-        await pilot.click("#all-agents")
+        await pilot.press("ctrl+enter", "f2")
+        assert app.screen is picker and not results
+        await pilot.press("alt+a")
         assert picker.targets == AGENT_IDS
+        assert search.value == "cursor"
         assert set(picker.query_one(AgentSelectionList).selected) == {"cursor"}
-        await pilot.click("#use-agents")
+        picker.query_one(AgentSelectionList).focus()
+        await pilot.press("f2")
         assert results == ["*"]
 
 
@@ -95,17 +108,23 @@ async def test_picker_confirmation_persists_across_projects_and_cancel_does_not(
             )
         )
         await pilot.pause()
-        await pilot.click("#choose-agents")
+        await pilot.press("alt+a")
         picker = app.screen
         picker.query_one(AgentSelectionList).select("cursor")
         await pilot.pause()
         await pilot.press("escape")
         assert not app.agent_preferences.path.exists()
         assert app.screen.query_one("#choose-agents").has_focus
-        await pilot.click("#choose-agents")
+        await pilot.press("alt+a")
+        search = app.screen.query_one("#agent-search", Input)
+        await pilot.press("u")
+        assert search.value == "u" and isinstance(app.screen, AgentPickerScreen)
+        search.value = ""
+        await pilot.pause()
         app.screen.query_one(AgentSelectionList).select("claude-code")
         await pilot.pause()
-        await pilot.click("#use-agents")
+        await pilot.press("ctrl+enter")
+        assert isinstance(app.screen, InstallScreen)
         assert app.screen.query_one("#choose-agents").has_focus
         assert "Claude Code" in str(app.screen.query_one("#agent-summary", Static).content)
         assert app.agent_preferences.load() == "codex claude-code"
@@ -117,6 +136,39 @@ async def test_picker_confirmation_persists_across_projects_and_cancel_does_not(
     next_app = SkillsApp(SkillsService(other_project, home=home), bootstrap=False)
     assert next_app.install_options.agents == "codex claude-code"
     assert next_app.install_options.scope == "project" and not next_app.install_options.copy
+
+
+@pytest.mark.parametrize("key", ["ctrl+enter", "f2"])
+@pytest.mark.parametrize(
+    ("catalog", "update", "verb"),
+    [(True, False, "Install"), (False, False, "Reinstall"), (False, True, "Update")],
+)
+async def test_install_dialog_shortcut_applies_current_settings(
+    isolated, key, catalog, update, verb
+):
+    from textual.widgets import Checkbox, Select
+
+    home, project = isolated
+    app = SkillsApp(SkillsService(project, home=home), bootstrap=False)
+    results = []
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = InstallScreen(
+            ["example"], InstallOptions(agents="codex"), catalog=catalog, update=update
+        )
+        app.push_screen(screen, results.append)
+        await pilot.pause()
+        button = screen.query_one("#apply-install", Button)
+        assert str(button.label) == f"{verb} · Ctrl+Enter / F2"
+        assert screen.query_one("#install-dialog").content_region.contains_region(button.region)
+        if catalog:
+            screen.query_one("#target-scope", Select).value = "global"
+        copy = screen.query_one("#copy", Checkbox)
+        copy.focus()
+        await pilot.press("space")
+        assert copy.value and app.screen is screen
+        await pilot.press(key)
+        assert results == [InstallOptions("global" if catalog else "project", "codex", True)]
+        assert len(app.screen_stack) == 1 and not app.busy
 
 
 @pytest.mark.parametrize(

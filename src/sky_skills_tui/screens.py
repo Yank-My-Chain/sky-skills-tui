@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Key
 from textual.screen import ModalScreen
@@ -35,7 +36,8 @@ HELP = """# Using Sky
 **O** selects outdated skills. **Escape** clears selection or returns to the list.
 Selections survive filtering; the selected count includes hidden rows.
 
-**/** focuses search. **V** opens SKILL.md. **Tab / Shift+Tab** moves focus.
+**/** focuses search. **V · View skill** opens SKILL.md. At narrow widths,
+**V · Close view** returns to the list. **Tab / Shift+Tab** moves focus.
 In a preview, use **↑ / ↓, Page Up / Page Down, Home / End** or the mouse wheel.
 Use the Details, SKILL.md and Metadata tabs to switch views.
 
@@ -44,22 +46,26 @@ Use the Details, SKILL.md and Metadata tabs to switch views.
 selection, it checks every visible skill. It does not change installed files.
 
 **U · Update** reinstalls selected skills, or the highlighted skill, from their
-recorded sources. **I · Restore** reinstalls missing or existing tracked skills.
+recorded sources. **I · Reinstall** restores missing or existing tracked skills.
 Both open installation settings so you can choose agents and copy mode.
-**Choose agents…** opens a searchable checkbox list with common agents first.
-**Use selection** saves agent defaults for future Sky launches; Escape cancels.
+**Choose agents… · Alt+A** opens a searchable checkbox list with common agents first.
+**Use selection · Ctrl+Enter / F2** saves agent defaults for future Sky launches;
+Escape cancels. **Alt+A** selects all agents and **Alt+C** clears the picker.
+**Ctrl+Enter** or **F2** activates the primary action in the current dialog,
+including Install, Reinstall, Update and Delete skills. Enter and Space keep
+their normal behavior on the focused control.
 
-**D · Remove** reviews selected skills (or the highlighted skill) before removal.
+**D · Delete** reviews selected skills (or the highlighted skill) before deletion.
 **R · Refresh** reloads lock files and installation locations.
 
-## Add skills
-**B · Add skills** opens the source field. Enter an owner/repo, Git URL or local
+## Browse skills
+**B · Browse skills** opens the source field. Enter an owner/repo, Git URL or local
 path, then press Enter or Browse. Select skills in the results and choose
 **Install**. Choose Project (this project) or Global (all projects) in the dialog.
 **Back to library** returns to installed skills.
 
 ## Activity and help
-**L** opens operation history, including full error details. **? / F1** opens
+**L · Activity log** opens operation history, including full error details. **? / F1** opens
 this help. **Ctrl+P** opens the command palette, including theme selection.
 **Escape** closes a dialog. **Q** quits after an operation finishes.
 """
@@ -91,7 +97,7 @@ class ActivityScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="reader-dialog"):
-            yield Label("Activity", classes="dialog-title")
+            yield Label("Activity log", classes="dialog-title")
             yield RichLog(id="activity-log", wrap=True, markup=False, max_lines=300)
             yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
 
@@ -126,7 +132,12 @@ class AgentSelectionList(SelectionList[str]):
 
 
 class AgentPickerScreen(ModalScreen[str | None]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+enter,f2", "apply", "Use selection", show=False, priority=True),
+        Binding("alt+a", "select_all_agents", "Select all agents", show=False, priority=True),
+        Binding("alt+c", "clear_agents", "Clear agents", show=False, priority=True),
+    ]
 
     def __init__(self, agents: str) -> None:
         super().__init__()
@@ -139,14 +150,20 @@ class AgentPickerScreen(ModalScreen[str | None]):
             yield Input(placeholder="Find agent…", id="agent-search")
             yield Static("", id="agent-count", markup=False)
             with Horizontal(id="agent-toolbar"):
-                yield Button(f"Select all {len(AGENTS)}", id="all-agents")
-                yield Button("Clear", id="clear-agents")
+                yield Button(
+                    shortcut_label(f"Select all {len(AGENTS)} · Alt+A", "Alt+A"), id="all-agents"
+                )
+                yield Button(shortcut_label("Clear · Alt+C", "Alt+C"), id="clear-agents")
             yield AgentSelectionList(id="agent-list")
             yield Static("No matching agents.", id="agent-empty")
             yield Static("All includes agents not installed on this machine.", classes="muted")
             with Horizontal(classes="dialog-actions"):
                 yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel-agents")
-                yield Button("Use selection", id="use-agents", variant="primary")
+                yield Button(
+                    shortcut_label("Use selection · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
+                    id="use-agents",
+                    variant="primary",
+                )
 
     def on_mount(self) -> None:
         self.render_agents()
@@ -207,12 +224,12 @@ class AgentPickerScreen(ModalScreen[str | None]):
         self.update_count()
 
     @on(Button.Pressed, "#all-agents")
-    def select_all_agents(self) -> None:
+    def action_select_all_agents(self) -> None:
         self.targets = set(AGENT_IDS)
         self.render_agents()
 
     @on(Button.Pressed, "#clear-agents")
-    def clear_agents(self) -> None:
+    def action_clear_agents(self) -> None:
         self.targets.clear()
         self.render_agents()
 
@@ -221,13 +238,17 @@ class AgentPickerScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
     @on(Button.Pressed, "#use-agents")
-    def apply(self) -> None:
+    def action_apply(self) -> None:
         if self.targets:
             self.dismiss(agent_targets(self.targets))
 
 
 class InstallScreen(ModalScreen[InstallOptions | None]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+enter,f2", "apply", "Apply installation", show=False, priority=True),
+        Binding("alt+a", "choose_agents", "Choose agents", show=False, priority=True),
+    ]
 
     def __init__(
         self,
@@ -240,7 +261,7 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
     ):
         super().__init__()
         self.names, self.options, self.catalog = names, options, catalog
-        self.verb = "Update" if update else ("Install" if catalog else "Restore")
+        self.verb = "Update" if update else ("Install" if catalog else "Reinstall")
         self.agents = options.agents
         self.on_agents_chosen = on_agents_chosen
 
@@ -265,7 +286,9 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 yield Label("Target agents")
                 with Horizontal(id="agent-summary-row"):
                     yield Static(agent_summary(self.agents), id="agent-summary", markup=False)
-                    yield Button("Choose agents…", id="choose-agents")
+                    yield Button(
+                        shortcut_label("Choose agents… · Alt+A", "Alt+A"), id="choose-agents"
+                    )
                 yield Checkbox("Copy files instead of linking", value=self.options.copy, id="copy")
                 yield Static(
                     "Links share one installation. Copies are independent.", classes="muted"
@@ -273,13 +296,17 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 yield Static("", id="install-error", markup=False)
             with Horizontal(classes="dialog-actions"):
                 yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
-                yield Button(self.verb, id="apply-install", variant="primary")
+                yield Button(
+                    shortcut_label(f"{self.verb} · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
+                    id="apply-install",
+                    variant="primary",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#target-scope" if self.catalog else "#choose-agents").focus()
 
     @on(Button.Pressed, "#choose-agents")
-    def choose_agents(self) -> None:
+    def action_choose_agents(self) -> None:
         def chosen(agents: str | None) -> None:
             if agents is not None:
                 self.agents = agents
@@ -295,7 +322,7 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
         self.dismiss(None)
 
     @on(Button.Pressed, "#apply-install")
-    def apply(self) -> None:
+    def action_apply(self) -> None:
         if not selected_agents(self.agents):
             self.query_one("#install-error", Static).update("Choose at least one target agent.")
             self.query_one("#choose-agents").focus()

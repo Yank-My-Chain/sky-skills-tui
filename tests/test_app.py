@@ -1,7 +1,9 @@
 """Fast Pilot coverage of UI selection, filtering, recovery and small terminals."""
 
 import pytest
-from textual.widgets import Input, Select
+from rich.text import Text
+from textual.content import Content
+from textual.widgets import Button, Input, Select
 
 from sky_skills_tui.app import ConfirmScreen, SkillsApp
 from sky_skills_tui.models import Inventory, Skill, Status
@@ -11,6 +13,19 @@ from sky_skills_tui.service import SkillsService
 @pytest.fixture(autouse=True)
 def preferences_home(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+def assert_letter_shortcut(app, widget_id, key):
+    label = app.query_one(f"#{widget_id}", Button).label
+    if isinstance(label, Text):
+        label = Content.from_rich_text(label)
+    assert isinstance(label, Content)
+    assert " · " not in label.plain
+    assert any(
+        label.plain[span.start : span.end].casefold() == key
+        and label.get_style_at_offset(span.start).underline
+        for span in label.spans
+    )
 
 
 class FakeService(SkillsService):
@@ -50,6 +65,16 @@ async def test_selection_filters_sources_and_sizes(tmp_path, size):
     app = SkillsApp(FakeService(tmp_path), bootstrap=False)
     async with app.run_test(size=size) as pilot:
         await pilot.pause()
+        for widget_id, key in (
+            ("add-source", "b"),
+            ("check", "c"),
+            ("update", "u"),
+            ("install", "i"),
+            ("remove", "d"),
+            ("inspect", "v"),
+            ("activity", "l"),
+        ):
+            assert_letter_shortcut(app, widget_id, key)
         await pilot.press("s")
         assert app.selected == {"project:alpha", "global:beta"}
         await pilot.press("escape")
@@ -69,13 +94,19 @@ async def test_selection_filters_sources_and_sizes(tmp_path, size):
         assert not app.visible_skills
 
 
-async def test_error_recovery_and_remove_cancel(tmp_path):
+@pytest.mark.parametrize("confirm_key", ["ctrl+enter", "f2"])
+async def test_error_recovery_and_remove_cancel(tmp_path, confirm_key):
     service = FakeService(tmp_path)
     app = SkillsApp(service, bootstrap=False)
     async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.press(confirm_key)
+        assert not service.removed and len(app.screen_stack) == 1
         await pilot.press("d")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmScreen)
+        assert str(app.screen.query_one("#confirm", Button).label) == (
+            "Delete skills · Ctrl+Enter / F2"
+        )
         await pilot.press("escape")
         assert not service.removed
         service.failure = True
@@ -90,7 +121,7 @@ async def test_error_recovery_and_remove_cancel(tmp_path):
         assert all(s.status == Status.OUTDATED for s in app.skills)
         await pilot.press("o", "d")
         await pilot.pause()
-        await pilot.click("#confirm")
+        await pilot.press(confirm_key)
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert len(service.removed) == 3 and not app.skills
@@ -125,6 +156,10 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
         app.query_one("#skills").focus()
         await pilot.press("v")
         await pilot.pause()
+        assert_letter_shortcut(app, "inspect", "v")
+        assert str(app.query_one("#inspect", Button).label) == (
+            "Close view" if size[0] < 120 else "View skill"
+        )
         scroll = app.query_one("#content-scroll", VerticalScroll)
         assert app.focused is scroll
         assert scroll.max_scroll_y > 0
@@ -150,8 +185,10 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
         app.render_rows()
         await pilot.pause()
         assert scroll.scroll_y == old_scroll
-        await pilot.press("escape")
+        await pilot.press("v" if size[0] < 120 else "escape")
         assert app.query_one("#skills").has_focus
+        assert str(app.query_one("#inspect", Button).label) == "View skill"
+        assert_letter_shortcut(app, "inspect", "v")
 
 
 @pytest.mark.parametrize("size", [(80, 24), (140, 45)])
@@ -278,6 +315,13 @@ async def test_install_settings_help_and_activity(tmp_path):
     service = InstallingService(tmp_path)
     app = SkillsApp(service, bootstrap=False)
     async with app.run_test(size=(80, 24)) as pilot:
+        assert str(app.query_one("#install", Button).label) == "Reinstall…"
+        await pilot.press("i")
+        assert isinstance(app.screen, InstallScreen)
+        assert str(app.screen.query_one("#apply-install", Button).label) == (
+            "Reinstall · Ctrl+Enter / F2"
+        )
+        await pilot.press("escape")
         await pilot.press("question_mark")
         assert isinstance(app.screen, HelpScreen)
         await pilot.press("c")  # Background shortcuts must not start operations from dialogs.
@@ -288,6 +332,8 @@ async def test_install_settings_help_and_activity(tmp_path):
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.catalog
+        assert str(app.query_one("#install", Button).label) == "Install…"
+        assert_letter_shortcut(app, "install", "i")
         await pilot.press("i")
         assert isinstance(app.screen, InstallScreen)
         scope = app.screen.query_one("#target-scope", Select)
@@ -309,6 +355,8 @@ async def test_install_settings_help_and_activity(tmp_path):
         assert skills[0].metadata["targetScope"] == "global"
         assert agents == ["codex", "claude-code"] and copy
         assert not app.catalog
+        assert str(app.query_one("#install", Button).label) == "Reinstall…"
+        assert_letter_shortcut(app, "install", "i")
         assert not app.query_one("#source-bar").display
         await pilot.press("l")
         assert isinstance(app.screen, ActivityScreen)

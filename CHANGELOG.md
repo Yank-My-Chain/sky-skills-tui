@@ -12,7 +12,7 @@ contract and release process.
 
 ## [Unreleased]
 
-The next release is planned as **0.2.0**. These changes are not yet released.
+## [0.2.0] - 2026-10-05
 
 ### Added
 
@@ -27,6 +27,10 @@ The next release is planned as **0.2.0**. These changes are not yet released.
 
 - Action buttons underline their keyboard shortcuts, including Escape on
   Cancel and Close buttons.
+- Button wording matches its letter shortcut: Browse skills (B), Reinstall (I),
+  Delete (D), View skill / Close view (V), and Activity log (L).
+- Dialog buttons show Ctrl+Enter / F2 for their primary action, including
+  Use selection. Choose agents and Select all use Alt+A; Clear uses Alt+C.
 
 ## [0.1.0] - 2026-10-04
 
@@ -47,5 +51,6 @@ Initial release.
 - Git-tag-derived package versions, installation documentation, and automated
   checks against the published npm CLI.
 
-[Unreleased]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Yank-My-Chain/sky-skills-tui/tree/v0.1.0

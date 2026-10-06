@@ -8,10 +8,12 @@ from rich.text import Text
 
 
 def shortcut_label(label: str, key: str) -> Text:
-    """Underline the bound key, appending it when it isn't in the action name."""
+    """Underline a key in the wording, with separate hints only for special keys."""
     text = Text(label)
     offset = label.casefold().find(key.casefold())
     if offset < 0:
+        if len(key) == 1 and key.isalpha():
+            raise ValueError(f"Letter shortcut {key!r} must appear in label {label!r}")
         text.append(" · ")
         text.append(key.upper(), style="underline")
     else:
