@@ -36,7 +36,10 @@ from .service import SkillsService
 
 
 class ConfirmScreen(ModalScreen[bool]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+enter,f2", "confirm", "Delete skills", show=False, priority=True),
+    ]
 
     def __init__(self, message: str) -> None:
         super().__init__()
@@ -48,7 +51,11 @@ class ConfirmScreen(ModalScreen[bool]):
             yield Static(self.message, markup=False)
             with Horizontal():
                 yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
-                yield Button("Delete skills", id="confirm", variant="error")
+                yield Button(
+                    shortcut_label("Delete skills · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
+                    id="confirm",
+                    variant="error",
+                )
 
     @on(Button.Pressed)
     def choose(self, event: Button.Pressed) -> None:
@@ -56,6 +63,9 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
 
 
 class SkillsApp(App[None]):

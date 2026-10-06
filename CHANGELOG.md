@@ -29,6 +29,8 @@ contract and release process.
   Cancel and Close buttons.
 - Button wording matches its letter shortcut: Browse skills (B), Reinstall (I),
   Delete (D), View skill / Close view (V), and Activity log (L).
+- Dialog buttons show Ctrl+Enter / F2 for their primary action, including
+  Use selection. Choose agents and Select all use Alt+A; Clear uses Alt+C.
 
 ## [0.1.0] - 2026-10-04
 

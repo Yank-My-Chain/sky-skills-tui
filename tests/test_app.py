@@ -94,14 +94,19 @@ async def test_selection_filters_sources_and_sizes(tmp_path, size):
         assert not app.visible_skills
 
 
-async def test_error_recovery_and_remove_cancel(tmp_path):
+@pytest.mark.parametrize("confirm_key", ["ctrl+enter", "f2"])
+async def test_error_recovery_and_remove_cancel(tmp_path, confirm_key):
     service = FakeService(tmp_path)
     app = SkillsApp(service, bootstrap=False)
     async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.press(confirm_key)
+        assert not service.removed and len(app.screen_stack) == 1
         await pilot.press("d")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmScreen)
-        assert str(app.screen.query_one("#confirm", Button).label) == "Delete skills"
+        assert str(app.screen.query_one("#confirm", Button).label) == (
+            "Delete skills · Ctrl+Enter / F2"
+        )
         await pilot.press("escape")
         assert not service.removed
         service.failure = True
@@ -116,7 +121,7 @@ async def test_error_recovery_and_remove_cancel(tmp_path):
         assert all(s.status == Status.OUTDATED for s in app.skills)
         await pilot.press("o", "d")
         await pilot.pause()
-        await pilot.click("#confirm")
+        await pilot.press(confirm_key)
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert len(service.removed) == 3 and not app.skills
@@ -313,7 +318,9 @@ async def test_install_settings_help_and_activity(tmp_path):
         assert str(app.query_one("#install", Button).label) == "Reinstall…"
         await pilot.press("i")
         assert isinstance(app.screen, InstallScreen)
-        assert str(app.screen.query_one("#apply-install", Button).label) == "Reinstall"
+        assert str(app.screen.query_one("#apply-install", Button).label) == (
+            "Reinstall · Ctrl+Enter / F2"
+        )
         await pilot.press("escape")
         await pilot.press("question_mark")
         assert isinstance(app.screen, HelpScreen)
