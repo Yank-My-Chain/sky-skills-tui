@@ -166,7 +166,7 @@ class SkillsApp(App[None]):
         Binding("q", "request_quit", "Quit"),
     ]
     # Library shortcuts pause behind dialogs; Tab, Ctrl+Q and Ctrl+P keep working there.
-    LIBRARY_ACTIONS = frozenset(binding.action for binding in BINDINGS)
+    LIBRARY_ACTIONS = frozenset(b.action for b in BINDINGS if isinstance(b, Binding))
 
     def __init__(self, service: SkillsService, *, bootstrap: bool = True) -> None:
         super().__init__()
