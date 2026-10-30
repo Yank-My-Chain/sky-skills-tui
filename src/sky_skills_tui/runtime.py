@@ -160,5 +160,18 @@ class Runtime:
         return await self.process([str(self.node), str(self.entry), *args], cwd)
 
     async def folder_hash(self, path: Path) -> str:
+        return (await self.folder_hashes([path]))[0]
+
+    async def folder_hashes(self, paths: list[Path], batch: int = 50) -> list[str]:
+        """Hash folders with one Node process per batch instead of one per folder."""
         helper = Path(__file__).with_name("hash.mjs")
-        return (await self.process([str(self.node), str(helper), str(path)], path)).strip()
+        hashes: list[str] = []
+        # Batches keep command lines well below Windows' 32K character limit.
+        for start in range(0, len(paths), batch):
+            chunk = paths[start : start + batch]
+            output = await self.process([str(self.node), str(helper), *map(str, chunk)], chunk[0])
+            lines = output.split()
+            if len(lines) != len(chunk):
+                raise CommandError(f"Hash helper returned {len(lines)} of {len(chunk)} hashes.")
+            hashes.extend(lines)
+        return hashes

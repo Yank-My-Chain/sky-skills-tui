@@ -28,13 +28,18 @@ from textual.widgets.selection_list import Selection
 from .agents import AGENT_IDS, AGENTS, COMMON_AGENTS, agent_summary, agent_targets, selected_agents
 from .presentation import shortcut_label
 
+# Some terminals send Ctrl+J (line feed) for Ctrl+Enter, and others cannot tell
+# Ctrl+Enter from Enter at all. F2 works everywhere (Fn+F2 on Mac keyboards).
+APPLY_KEYS = "ctrl+enter,ctrl+j,f2"
+
 HELP = """# Using Sky
 
 ## Read and select
 **↑ / ↓** moves through skills. **Space / Enter** selects a row.
 **A** selects or clears all visible rows. **S** selects the highlighted source.
-**O** selects outdated skills. **Escape** clears selection or returns to the list.
-Selections survive filtering; the selected count includes hidden rows.
+**O** selects outdated skills. **Escape** steps back: from the filter or a preview
+it returns to the list, during a check or browse it cancels, and otherwise it clears
+the selection. Selections survive filtering; the selected count includes hidden rows.
 
 **/** focuses search. **V · View skill** opens SKILL.md. At narrow widths,
 **V · Close view** returns to the list. **Tab / Shift+Tab** moves focus.
@@ -48,12 +53,15 @@ selection, it checks every visible skill. It does not change installed files.
 **U · Update** reinstalls selected skills, or the highlighted skill, from their
 recorded sources. **I · Reinstall** restores missing or existing tracked skills.
 Both open installation settings so you can choose agents and copy mode.
-**Choose agents… · Alt+A** opens a searchable checkbox list with common agents first.
+**A · Choose agents…** opens a searchable checkbox list with common agents first.
 **Use selection · Ctrl+Enter / F2** saves agent defaults for future Sky launches;
-Escape cancels. **Alt+A** selects all agents and **Alt+C** clears the picker.
-**Ctrl+Enter** or **F2** activates the primary action in the current dialog,
-including Install, Reinstall, Update and Delete skills. Enter and Space keep
-their normal behavior on the focused control.
+Escape cancels. In the agent list, **A** selects all agents and **C** clears the
+picker; from the search field, use **Alt+A** and **Alt+C**. On macOS, Alt shortcuts
+need Option set to act as Meta (Esc+ in iTerm2) in your terminal settings.
+**F2** or **Ctrl+Enter** activates the primary action in the current dialog,
+including Install, Reinstall, Update and Delete skills. F2 works in every terminal
+(Fn+F2 on Mac keyboards); some terminals and tmux treat Ctrl+Enter as plain Enter.
+Enter and Space keep their normal behavior on the focused control.
 
 **D · Delete** reviews selected skills (or the highlighted skill) before deletion.
 **R · Refresh** reloads lock files and installation locations.
@@ -65,14 +73,19 @@ path, then press Enter or Browse. Select skills in the results and choose
 **Back to library** returns to installed skills.
 
 ## Activity and help
-**L · Activity log** opens operation history, including full error details. **? / F1** opens
-this help. **Ctrl+P** opens the command palette, including theme selection.
-**Escape** closes a dialog. **Q** quits after an operation finishes.
+The status line shows a spinner and elapsed time while an operation runs. A check
+updates each source's rows as soon as that source finishes.
+
+**L · Activity log** opens operation history, including full error details. **?** opens
+this help (**F1** too, where the terminal does not reserve it). **Ctrl+P** opens the
+command palette, including theme selection. **Escape** or **Q** closes a dialog.
+**Q** quits; it cancels a running check, browse or refresh, but waits for installs,
+updates and removals to finish.
 """
 
 
 class HelpScreen(ModalScreen[None]):
-    BINDINGS = [("escape", "close", "Close")]
+    BINDINGS = [Binding("escape,q,question_mark,f1", "close", "Close", show=False)]
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="reader-dialog"):
@@ -89,7 +102,7 @@ class HelpScreen(ModalScreen[None]):
 
 
 class ActivityScreen(ModalScreen[None]):
-    BINDINGS = [("escape", "close", "Close")]
+    BINDINGS = [Binding("escape,q,l", "close", "Close", show=False)]
 
     def __init__(self, messages: list[str]) -> None:
         super().__init__()
@@ -134,9 +147,13 @@ class AgentSelectionList(SelectionList[str]):
 class AgentPickerScreen(ModalScreen[str | None]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
-        Binding("ctrl+enter,f2", "apply", "Use selection", show=False, priority=True),
+        Binding(APPLY_KEYS, "apply", "Use selection", show=False, priority=True),
+        # Alt works from the search field where the terminal sends it; macOS terminals
+        # type å and ç by default, so plain letters work whenever search is not focused.
         Binding("alt+a", "select_all_agents", "Select all agents", show=False, priority=True),
         Binding("alt+c", "clear_agents", "Clear agents", show=False, priority=True),
+        Binding("a", "select_all_agents", "Select all agents", show=False),
+        Binding("c", "clear_agents", "Clear agents", show=False),
     ]
 
     def __init__(self, agents: str) -> None:
@@ -150,10 +167,8 @@ class AgentPickerScreen(ModalScreen[str | None]):
             yield Input(placeholder="Find agent…", id="agent-search")
             yield Static("", id="agent-count", markup=False)
             with Horizontal(id="agent-toolbar"):
-                yield Button(
-                    shortcut_label(f"Select all {len(AGENTS)} · Alt+A", "Alt+A"), id="all-agents"
-                )
-                yield Button(shortcut_label("Clear · Alt+C", "Alt+C"), id="clear-agents")
+                yield Button(shortcut_label(f"Select all {len(AGENTS)}", "a"), id="all-agents")
+                yield Button(shortcut_label("Clear", "c"), id="clear-agents")
             yield AgentSelectionList(id="agent-list")
             yield Static("No matching agents.", id="agent-empty")
             yield Static("All includes agents not installed on this machine.", classes="muted")
@@ -211,10 +226,15 @@ class AgentPickerScreen(ModalScreen[str | None]):
         self.render_agents()
 
     def on_key(self, event: Key) -> None:
+        agents = self.query_one("#agent-list", AgentSelectionList)
         if event.key == "down" and self.query_one("#agent-search").has_focus and self.shown:
-            self.query_one("#agent-list").focus()
-            event.stop()
-            event.prevent_default()
+            agents.focus()
+        elif event.key == "up" and agents.has_focus and not agents.highlighted:
+            self.query_one("#agent-search").focus()
+        else:
+            return
+        event.stop()
+        event.prevent_default()
 
     @on(SelectionList.SelectedChanged, "#agent-list")
     def selection_changed(self) -> None:
@@ -246,8 +266,9 @@ class AgentPickerScreen(ModalScreen[str | None]):
 class InstallScreen(ModalScreen[InstallOptions | None]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
-        Binding("ctrl+enter,f2", "apply", "Apply installation", show=False, priority=True),
-        Binding("alt+a", "choose_agents", "Choose agents", show=False, priority=True),
+        Binding(APPLY_KEYS, "apply", "Apply installation", show=False, priority=True),
+        # This dialog has no text field, so the plain letter works on every keyboard.
+        Binding("a,alt+a", "choose_agents", "Choose agents", show=False),
     ]
 
     def __init__(
@@ -286,9 +307,7 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 yield Label("Target agents")
                 with Horizontal(id="agent-summary-row"):
                     yield Static(agent_summary(self.agents), id="agent-summary", markup=False)
-                    yield Button(
-                        shortcut_label("Choose agents… · Alt+A", "Alt+A"), id="choose-agents"
-                    )
+                    yield Button(shortcut_label("Choose agents…", "a"), id="choose-agents")
                 yield Checkbox("Copy files instead of linking", value=self.options.copy, id="copy")
                 yield Static(
                     "Links share one installation. Copies are independent.", classes="muted"

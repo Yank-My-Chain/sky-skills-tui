@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
+import time
+from collections import OrderedDict
+from collections.abc import Awaitable, Iterable
 
+from rich.segment import Segment
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.events import Resize
+from textual.geometry import Size
 from textual.screen import ModalScreen
+from textual.strip import Strip
 from textual.theme import Theme
+from textual.widget import Widget
 from textual.widgets import (
     Button,
     DataTable,
@@ -26,19 +32,29 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
+from textual.worker import Worker
 
 from .models import Skill, Status
 from .preferences import AgentPreferences
-from .presentation import SkillMarkdown, shortcut_label, split_frontmatter
+from .presentation import RenderedMarkdown, SkillMarkdown, shortcut_label, split_frontmatter
 from .runtime import SKILLS_VERSION
-from .screens import ActivityScreen, HelpScreen, InstallOptions, InstallScreen
+from .screens import APPLY_KEYS, ActivityScreen, HelpScreen, InstallOptions, InstallScreen
 from .service import SkillsService
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# Previews that render within this budget appear at once, without a placeholder.
+PREVIEW_INLINE_SECONDS = 0.03
+# Longer documents are parsed and rendered in the background from the start.
+PREVIEW_INLINE_CHARS = 8000
+# Background previews render in slices this long, handling keys between them.
+PREVIEW_SLICE_SECONDS = 0.01
+PREVIEW_CACHE_SIZE = 8
 
 
 class ConfirmScreen(ModalScreen[bool]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
-        Binding("ctrl+enter,f2", "confirm", "Delete skills", show=False, priority=True),
+        Binding(APPLY_KEYS, "confirm", "Delete skills", show=False, priority=True),
     ]
 
     def __init__(self, message: str) -> None:
@@ -68,6 +84,58 @@ class ConfirmScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class PreviewPane(Widget):
+    """SKILL.md view that draws only the visible lines of a pre-rendered document.
+
+    A Static would re-render every line of a long skill on each update and layout.
+    """
+
+    DEFAULT_CSS = "PreviewPane { height: auto; }"
+
+    def __init__(self, content: str, *, id: str | None = None) -> None:
+        super().__init__(id=id)
+        self.content: RenderedMarkdown | Text = Text(content)
+        self._lines: tuple[int, list[list[Segment]]] | None = None
+        self._strips: dict[int, Strip] = {}
+
+    def update(self, content: RenderedMarkdown | Text) -> None:
+        self.content = content
+        self._lines, self._strips = None, {}
+        self.refresh(layout=True)
+
+    def lines(self, width: int) -> list[list[Segment]]:
+        if isinstance(self.content, RenderedMarkdown):
+            return self.content.lines
+        if self._lines is None or self._lines[0] != width:
+            options = self.app.console_options.update_width(max(width, 1))
+            self._lines = (width, self.app.console.render_lines(self.content, options, pad=False))
+            self._strips = {}
+        return self._lines[1]
+
+    def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
+        return len(self.lines(width))
+
+    def render_line(self, y: int) -> Strip:
+        width = self.content_size.width
+        lines = self.lines(width)
+        if y >= len(lines):
+            return Strip.blank(width, self.rich_style)
+        # Strips are created only for lines that scroll into view.
+        if (strip := self._strips.get(y)) is None:
+            strip = self._strips[y] = Strip(lines[y]).apply_style(self.rich_style)
+        return strip
+
+    def notify_style_update(self) -> None:
+        super().notify_style_update()
+        self._strips = {}
+
+    def on_resize(self) -> None:
+        # Markdown is rendered for a specific width, so redraw when that changes.
+        render = getattr(self.app, "render_preview", None)
+        if render is not None:
+            render()
+
+
 class SkillsApp(App[None]):
     TITLE = "Sky"
     SUB_TITLE = "Your skills, their sources, one place"
@@ -84,7 +152,7 @@ class SkillsApp(App[None]):
         Binding("d", "remove", "Delete", show=False),
         Binding("o", "select_outdated", "Select outdated", show=False),
         Binding("slash", "search", "Filter"),
-        Binding("escape", "clear_selection", "Clear", show=False),
+        Binding("escape", "step_back", "Back / clear", show=False),
         Binding("v", "inspect", "View skill"),
         Binding("l", "activity", "Activity log", show=False),
         Binding("question_mark,f1", "help", "Help", key_display="?"),
@@ -125,7 +193,18 @@ class SkillsApp(App[None]):
         self.messages: list[str] = []
         self._preview_key: tuple[str, str] | None = None
         self._preview_body = "No skill selected."
-        self._rendered_preview: tuple[tuple[str, str] | None, str] | None = None
+        self._rendered_preview: tuple[object, ...] | None = None
+        self._preview_pending: tuple[object, ...] | None = None
+        self._preview_cache: OrderedDict[tuple[object, ...], RenderedMarkdown] = OrderedDict()
+        # Keys of rows an operation is working on, shown in the status column.
+        self.pending: set[str] = set()
+        self.pending_label = ""
+        self.operation_label = ""
+        self.operation_detail = ""
+        self.operation_started = 0.0
+        self.operation_cancellable = False
+        self.operation_worker: Worker[None] | None = None
+        self._busy_notified = 0.0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -166,7 +245,7 @@ class SkillsApp(App[None]):
                                 )
                         with TabPane("SKILL.md", id="content-tab"):
                             with VerticalScroll(id="content-scroll", can_focus=True):
-                                yield Static("No skill selected.", id="content", markup=False)
+                                yield PreviewPane("No skill selected.", id="content")
                         with TabPane("Metadata", id="metadata-tab"):
                             with VerticalScroll(id="metadata-scroll", can_focus=True):
                                 yield Static("", id="metadata", markup=False)
@@ -206,6 +285,7 @@ class SkillsApp(App[None]):
             self.query_one(f"#{name}").tooltip = tip
         self.load_inventory()
         self.query_one("#skills", DataTable).focus()
+        self.set_interval(0.1, self.tick_operation)
         if self.bootstrap:
             self.start_operation("Preparing npm skills runtime", self.prepare())
 
@@ -226,6 +306,21 @@ class SkillsApp(App[None]):
             return False
         if action in {"toggle_skill", "select_all", "select_source", "select_outdated"}:
             return isinstance(self.focused, DataTable)
+        return True
+
+    def blocked(self) -> bool:
+        """Explain, rather than silently ignore, actions requested while busy."""
+        if not self.busy:
+            return False
+        now = time.monotonic()
+        if now - self._busy_notified > 2:
+            self._busy_notified = now
+            self.notify(
+                f"{self.operation_label} is still running."
+                + (" Press Esc to cancel it." if self.operation_cancellable else ""),
+                title="Please wait",
+                timeout=3,
+            )
         return True
 
     async def prepare(self) -> str:
@@ -270,9 +365,9 @@ class SkillsApp(App[None]):
         row = table.cursor_row
         table.clear(columns=True)
         width = max(24, table.size.width - 31)
-        table.add_column("", width=1)
-        table.add_column("Skill / source", width=width)
-        table.add_column("Status / scope", width=22)
+        table.add_column("", width=1, key="mark")
+        table.add_column("Skill / source", width=width, key="skill")
+        table.add_column("Status / scope", width=22, key="status")
         scope = self.query_one("#scope", Select).value
         query = self.query_one("#filter", Input).value.casefold()
         candidates = self.available if self.catalog else self.skills
@@ -284,24 +379,11 @@ class SkillsApp(App[None]):
                 and query in f"{s.name} {s.source} {s.status} {' '.join(s.agents)}".casefold()
             )
         ]
-        colors = {
-            Status.CURRENT: self.current_theme.success or "green",
-            Status.OUTDATED: self.current_theme.warning or "yellow",
-            Status.DEPRECATED: self.current_theme.error or "red",
-            Status.UNAVAILABLE: self.current_theme.warning or "yellow",
-        }
         for skill in self.visible_skills:
-            state = "available" if self.catalog else str(skill.status)
-            location = skill.scope
-            if not self.catalog and skill.installed_path is None:
-                location += " · not on disk"
             table.add_row(
-                Text(
-                    "✓" if skill.key in self.selection else "○",
-                    style=self.current_theme.accent or "cyan",
-                ),
+                self.mark_cell(skill),
                 Text.assemble((skill.name, "bold"), "\n", (skill.source, "dim")),
-                Text.assemble((state, colors.get(skill.status, "")), "\n", (location, "dim")),
+                self.status_cell(skill),
                 key=skill.key,
                 height=2,
             )
@@ -316,6 +398,40 @@ class SkillsApp(App[None]):
         )
         self.update_summary()
         self.show_details(self.focused_skill())
+
+    def mark_cell(self, skill: Skill) -> Text:
+        return Text(
+            "✓" if skill.key in self.selection else "○",
+            style=self.current_theme.accent or "cyan",
+        )
+
+    def status_cell(self, skill: Skill) -> Text:
+        colors = {
+            Status.CURRENT: self.current_theme.success or "green",
+            Status.OUTDATED: self.current_theme.warning or "yellow",
+            Status.DEPRECATED: self.current_theme.error or "red",
+            Status.UNAVAILABLE: self.current_theme.warning or "yellow",
+        }
+        state, color = (
+            ("available" if self.catalog else str(skill.status)),
+            colors.get(skill.status, ""),
+        )
+        if skill.key in self.pending:
+            state, color = self.pending_label, self.current_theme.accent or "cyan"
+        location = skill.scope
+        if not self.catalog and skill.installed_path is None:
+            location += " · not on disk"
+        return Text.assemble((state, color), "\n", (location, "dim"))
+
+    def refresh_cells(self, keys: Iterable[str] | None = None) -> None:
+        """Redraw the mark and status of some rows without rebuilding the table."""
+        table = self.query_one("#skills", DataTable)
+        wanted = None if keys is None else set(keys)
+        for skill in self.visible_skills:
+            if wanted is None or skill.key in wanted:
+                table.update_cell(skill.key, "mark", self.mark_cell(skill))
+                table.update_cell(skill.key, "status", self.status_cell(skill))
+        self.update_summary()
 
     def update_summary(self) -> None:
         label = "SOURCE CATALOG" if self.catalog else "INSTALLED SKILLS"
@@ -421,15 +537,62 @@ class SkillsApp(App[None]):
             or not screen.query_one("#details-panel").display
         ):
             return
-        preview = (self._preview_key, self.theme)
-        if preview != self._rendered_preview:
-            screen.query_one("#content", Static).update(
-                SkillMarkdown(
-                    self._preview_body,
-                    code_theme="monokai" if self.current_theme.dark else "friendly",
-                )
-            )
-            self._rendered_preview = preview
+        view = screen.query_one("#content", PreviewPane)
+        width = view.content_size.width
+        if width <= 0:
+            return  # PreviewPane.on_resize retries once the pane is laid out.
+        code_theme = "monokai" if self.current_theme.dark else "friendly"
+        target = (self._preview_key, code_theme, width)
+        if target in (self._rendered_preview, self._preview_pending):
+            return
+        # A new target supersedes any preview still rendering.
+        self.workers.cancel_group(self, "preview")
+        if (cached := self._preview_cache.get(target)) is not None:
+            self._preview_cache.move_to_end(target)
+            self._show_preview(target, cached)
+            return
+        body = self._preview_body
+        if len(body) <= PREVIEW_INLINE_CHARS:
+            rendered = RenderedMarkdown(SkillMarkdown(body, code_theme=code_theme), width)
+            if rendered.render_for(PREVIEW_INLINE_SECONDS):
+                self._show_preview(target, self._cache_preview(target, rendered))
+                return
+        else:
+            rendered = None
+        # Long documents finish in the background so the list stays responsive.
+        self._preview_pending = target
+        self._rendered_preview = None
+        view.update(Text("Rendering SKILL.md…", style="dim"))
+        self.run_worker(
+            self._finish_preview(target, rendered or (body, code_theme, width)),
+            group="preview",
+            exit_on_error=False,
+        )
+
+    async def _finish_preview(
+        self, target: tuple[object, ...], work: RenderedMarkdown | tuple[str, str, int]
+    ) -> None:
+        if isinstance(work, tuple):
+            await asyncio.sleep(0)  # Parse in a separate loop turn from the key press.
+            body, code_theme, width = work
+            work = RenderedMarkdown(SkillMarkdown(body, code_theme=code_theme), width)
+        while not work.render_for(PREVIEW_SLICE_SECONDS):
+            await asyncio.sleep(0)
+        if self._preview_pending == target:
+            self._show_preview(target, self._cache_preview(target, work))
+
+    def _cache_preview(
+        self, target: tuple[object, ...], rendered: RenderedMarkdown
+    ) -> RenderedMarkdown:
+        self._preview_cache[target] = rendered
+        while len(self._preview_cache) > PREVIEW_CACHE_SIZE:
+            self._preview_cache.popitem(last=False)
+        return rendered
+
+    def _show_preview(self, target: tuple[object, ...], rendered: RenderedMarkdown) -> None:
+        self.screen_stack[0].query_one("#content", PreviewPane).update(rendered)
+        self._rendered_preview = target
+        self._preview_pending = None
 
     @on(TabbedContent.TabActivated, "#inspector-tabs")
     def inspector_tab(self, event: TabbedContent.TabActivated) -> None:
@@ -478,11 +641,8 @@ class SkillsApp(App[None]):
 
     def action_toggle_skill(self) -> None:
         if skill := self.focused_skill():
-            if skill.key in self.selection:
-                self.selection.remove(skill.key)
-            else:
-                self.selection.add(skill.key)
-            self.render_rows()
+            self.selection.symmetric_difference_update({skill.key})
+            self.refresh_cells([skill.key])
 
     def action_select_all(self) -> None:
         keys = {s.key for s in self.visible_skills}
@@ -490,16 +650,34 @@ class SkillsApp(App[None]):
             self.selection.difference_update(keys)
         else:
             self.selection.update(keys)
-        self.render_rows()
+        self.refresh_cells(keys)
 
     def action_select_source(self) -> None:
         if current := self.focused_skill():
-            self.selection.update(s.key for s in self.visible_skills if s.source == current.source)
-            self.render_rows()
+            keys = {s.key for s in self.visible_skills if s.source == current.source}
+            self.selection.update(keys)
+            self.refresh_cells(keys)
 
     def action_select_outdated(self) -> None:
-        self.selection.update(s.key for s in self.visible_skills if s.status == Status.OUTDATED)
-        self.render_rows()
+        keys = {s.key for s in self.visible_skills if s.status == Status.OUTDATED}
+        self.selection.update(keys)
+        self.refresh_cells(keys)
+
+    def action_step_back(self) -> None:
+        """Escape steps back one level: leave a field or preview, cancel, then clear."""
+        focused = self.focused
+        if isinstance(focused, Input) and focused.id in {"filter", "source"}:
+            if focused.id == "source" and not focused.value and not self.catalog:
+                self.query_one("#source-bar").display = False
+            self.query_one("#skills").focus()
+            return
+        if self.screen.has_class("reading") or self.query_one("#details-panel").has_focus_within:
+            self.action_clear_selection()
+            return
+        if self.busy and self.operation_cancellable and self.operation_worker:
+            self.operation_worker.cancel()
+            return
+        self.action_clear_selection()
 
     def action_clear_selection(self) -> None:
         if self.screen.has_class("reading") or self.query_one("#details-panel").has_focus_within:
@@ -507,8 +685,9 @@ class SkillsApp(App[None]):
             self.query_one("#skills").focus()
             self.update_summary()
             return
+        cleared = set(self.selection)
         self.selection.clear()
-        self.render_rows()
+        self.refresh_cells(cleared)
 
     def action_search(self) -> None:
         self.query_one("#filter", Input).focus()
@@ -526,7 +705,7 @@ class SkillsApp(App[None]):
         if self.focused_skill():
             self.screen.add_class("reading")
             self.query_one("#inspector-tabs", TabbedContent).active = "content-tab"
-            self.render_preview()
+            self.call_after_refresh(self.render_preview)
             self.call_after_refresh(self.query_one("#content-scroll").focus)
             self.update_summary()
 
@@ -541,23 +720,25 @@ class SkillsApp(App[None]):
         self.render_rows()
 
     def action_refresh(self) -> None:
-        if not self.busy:
+        if not self.blocked():
             self.load_inventory()
-            self.start_operation("Refreshing installation locations", self.refresh_locations())
+            self.start_operation(
+                "Refreshing installation locations", self.refresh_locations(), cancellable=True
+            )
 
     async def refresh_locations(self) -> str:
         await self.service.installed(self.skills)
         return "Library refreshed."
 
     def action_browse(self) -> None:
-        if self.busy:
+        if self.blocked():
             return
         source = self.query_one("#source", Input).value.strip()
         if not source and (current := self.focused_skill()):
             source = current.source_input
             self.query_one("#source", Input).value = source
         scope = self.install_options.scope
-        self.start_operation("Browsing source", self.browse(source, scope))
+        self.start_operation("Browsing source", self.browse(source, scope), cancellable=True)
 
     async def browse(self, source: str, scope: str) -> str:
         skills = await self.service.browse(source, scope)
@@ -568,16 +749,27 @@ class SkillsApp(App[None]):
         return f"Found {len(skills)} skills. Select several or all, then Install."
 
     def action_check(self) -> None:
-        if self.busy or self.catalog:
+        if self.catalog or self.blocked():
             return
         skills = self.chosen(fallback=False) or list(self.visible_skills)
         if not skills:
             self.activity("No installed skills to check.")
             return
-        self.start_operation(f"Checking {len(skills)} skill(s)", self.check(skills))
+        self.start_operation(
+            f"Checking {len(skills)} skill(s)",
+            self.check(skills),
+            cancellable=True,
+            pending=(skills, "checking…"),
+        )
 
     async def check(self, skills: list[Skill]) -> str:
-        await self.service.check(skills)
+        def progress(done: int, total: int, group: list[Skill]) -> None:
+            # Show each source's results as soon as it finishes.
+            self.operation_detail = f"{done} of {total} sources"
+            self.pending.difference_update(s.key for s in group)
+            self.refresh_cells(s.key for s in group)
+
+        await self.service.check(skills, progress)
         for skill in skills:
             self.activity(f"{skill.name}: {skill.status} — {skill.reason}")
         return f"Checked {len(skills)} skill(s)."
@@ -590,7 +782,7 @@ class SkillsApp(App[None]):
             self.install_chosen(update=True)
 
     def install_chosen(self, *, update: bool) -> None:
-        if self.busy:
+        if self.blocked():
             return
         skills = self.chosen()
         if not skills:
@@ -613,6 +805,7 @@ class SkillsApp(App[None]):
             self.start_operation(
                 f"{'Updating' if update else 'Installing'} {len(skills)} skill(s)",
                 self.install(skills, agents, options.copy),
+                pending=(skills, "updating…" if update else "installing…"),
             )
 
         self.push_screen(
@@ -646,7 +839,7 @@ class SkillsApp(App[None]):
         return message
 
     def action_remove(self) -> None:
-        if self.busy or self.catalog:
+        if self.catalog or self.blocked():
             return
         skills = self.chosen()
         if not skills:
@@ -657,7 +850,11 @@ class SkillsApp(App[None]):
 
         def confirmed(result: bool | None) -> None:
             if result:
-                self.start_operation(f"Removing {len(skills)} skill(s)", self.remove(skills))
+                self.start_operation(
+                    f"Removing {len(skills)} skill(s)",
+                    self.remove(skills),
+                    pending=(skills, "removing…"),
+                )
 
         self.push_screen(ConfirmScreen(message), confirmed)
 
@@ -672,24 +869,60 @@ class SkillsApp(App[None]):
         if isinstance(self.screen, ActivityScreen):
             self.screen.query_one(RichLog).write(Text(message))
 
-    def start_operation(self, label: str, operation: Awaitable[str]) -> None:
+    def start_operation(
+        self,
+        label: str,
+        operation: Awaitable[str],
+        *,
+        cancellable: bool = False,
+        pending: tuple[list[Skill], str] | None = None,
+    ) -> None:
+        """Run one operation at a time. Only read-only operations may be cancelled."""
         if self.busy:
             if asyncio.iscoroutine(operation):
                 operation.close()
             return
         self.busy = True
-        self.query_one("#operation", Static).update(label + "…")
+        self.operation_label, self.operation_detail = label, ""
+        self.operation_started = time.monotonic()
+        self.operation_cancellable = cancellable
         self.activity(label + "…")
         for button in self.query(Button):
             if button.id not in {"inspect", "activity", "help"}:
                 button.disabled = True
-        self.run_worker(self.perform(operation), name=label, exit_on_error=False)
+        if pending:
+            skills, self.pending_label = pending
+            self.pending = {s.key for s in skills}
+            self.refresh_cells(self.pending)
+        self.tick_operation()
+        self.operation_worker = self.run_worker(
+            self.perform(label, operation), name=label, exit_on_error=False
+        )
 
-    async def perform(self, operation: Awaitable[str]) -> None:
+    def tick_operation(self) -> None:
+        """Animate the status line so long operations never look frozen."""
+        if not self.busy:
+            return
+        elapsed = time.monotonic() - self.operation_started
+        parts = [f"{SPINNER[int(elapsed * 10) % len(SPINNER)]} {self.operation_label}…"]
+        if self.operation_detail:
+            parts.append(self.operation_detail)
+        if elapsed >= 1:
+            parts.append(f"{int(elapsed)}s")
+        if self.operation_cancellable:
+            parts.append("Esc cancels")
+        self.query_one("#operation", Static).update(" · ".join(parts))
+
+    async def perform(self, label: str, operation: Awaitable[str]) -> None:
         try:
             message = await operation
             self.activity(message)
             self.query_one("#operation", Static).update(message)
+        except asyncio.CancelledError:
+            # Subprocesses are terminated by Runtime.process; finished results are kept.
+            self.activity(f"Cancelled: {label}.")
+            self.query_one("#operation", Static).update(f"Cancelled: {label}.")
+            raise
         except Exception as error:
             message = f"{type(error).__name__}: {error}"
             self.activity(message)
@@ -706,6 +939,9 @@ class SkillsApp(App[None]):
             self.load_inventory()
         finally:
             self.busy = False
+            self.operation_cancellable = False
+            self.operation_worker = None
+            self.pending.clear()
             for button in self.query(Button):
                 button.disabled = False
             self.render_rows()
@@ -714,7 +950,16 @@ class SkillsApp(App[None]):
 
     async def action_quit(self) -> None:
         if self.busy:
-            self.activity("Wait for the current operation to finish before quitting.")
+            if self.operation_cancellable and self.operation_worker:
+                self.operation_worker.cancel()
+                self.exit()
+                return
+            self.notify(
+                f"{self.operation_label} must finish first so nothing is left half-written.",
+                title="Please wait",
+                severity="warning",
+                timeout=4,
+            )
             return
         self.exit()
 

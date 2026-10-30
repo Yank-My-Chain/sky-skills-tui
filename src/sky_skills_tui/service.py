@@ -7,7 +7,9 @@ import json
 import re
 import tempfile
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TypeVar
 from urllib.parse import urlparse
 
 import yaml
@@ -24,6 +26,24 @@ from .runtime import CommandError, CompatibilityError, Runtime
 from .upstream import json_rows
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# Sources are cloned and hashed in parallel, bounded to stay polite to Git hosts.
+CHECK_CONCURRENCY = 4
+T = TypeVar("T")
+CheckProgress = Callable[[int, int, list[Skill]], None]
+
+
+async def gather_all(*operations: Awaitable[T]) -> list[T]:
+    """Run concurrently; on failure, cancel the rest and raise the first error."""
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(_awaited(operation)) for operation in operations]
+    except ExceptionGroup as errors:
+        raise errors.exceptions[0] from None
+    return [task.result() for task in tasks]
+
+
+async def _awaited(operation: Awaitable[T]) -> T:
+    return await operation
 
 
 def parse_available(output: str) -> list[tuple[str, str]]:
@@ -79,20 +99,24 @@ class SkillsService:
 
     async def installed(self, skills: list[Skill]) -> None:
         """Enrich lock entries with the upstream CLI's actual placement information."""
-        for scope in {s.scope for s in skills}:
-            if scope not in {"project", "global"}:
-                continue
-            args = ["list", "--json"] + (["--global"] if scope == "global" else [])
-            data = json_rows(await self.runtime.run(args, self.project), "list")
+        scopes = sorted({s.scope for s in skills} & {"project", "global"})
+        outputs = await gather_all(
+            *(
+                self.runtime.run(
+                    ["list", "--json"] + (["--global"] if scope == "global" else []),
+                    self.project,
+                )
+                for scope in scopes
+            )
+        )
+        for scope, output in zip(scopes, outputs, strict=True):
+            entries = {entry["name"]: entry for entry in json_rows(output, "list")}
             for skill in skills:
-                if skill.scope == scope:
-                    skill.installed_path = None
-                    skill.agents = []
-            for entry in data:
-                for skill in skills:
-                    if skill.scope == scope and skill.name == entry["name"]:
-                        skill.installed_path = Path(entry["path"])
-                        skill.agents = entry.get("agents", [])
+                if skill.scope != scope:
+                    continue
+                entry = entries.get(skill.name)
+                skill.installed_path = Path(entry["path"]) if entry else None
+                skill.agents = entry.get("agents", []) if entry else []
 
     async def browse(self, source: str, scope: str) -> list[Skill]:
         if not source.strip() or source.startswith("-"):
@@ -194,57 +218,75 @@ class SkillsService:
                 messages.append(f"Removed {len(names)} skill(s) ({scope}).")
         return "\n".join(messages)
 
-    async def check(self, skills: list[Skill]) -> None:
+    async def check(self, skills: list[Skill], progress: CheckProgress | None = None) -> None:
         groups: dict[tuple[str, str, str], list[Skill]] = defaultdict(list)
         for skill in skills:
             groups[(skill.source_type, skill.source_input, skill.ref)].append(skill)
+        limit = asyncio.Semaphore(CHECK_CONCURRENCY)
+        done = 0
+
+        async def check_group(kind: str, source: str, ref: str, group: list[Skill]) -> None:
+            nonlocal done
+            async with limit:
+                await self._check_source(kind, source, ref, group)
+            done += 1
+            if progress is not None:
+                progress(done, len(groups), group)
+
         # One snapshot per source/ref: check every selected skill against the same tree.
-        for (kind, source, ref), group in groups.items():
-            try:
-                if kind == "local":
-                    root = Path(source)
-                    if not root.exists():
-                        for skill in group:
-                            skill.status = Status.DEPRECATED
-                            skill.reason = "Recorded local source no longer exists."
-                        continue
-                    await self._compare(root, group, git=False)
-                elif kind in {"github", "gitlab", "git"}:
-                    url = source.split("#", 1)[0]
-                    if kind == "github" and not urlparse(url).scheme and not url.startswith("git@"):
-                        url = f"https://github.com/{url}.git"
-                    elif kind in {"git", "gitlab"} and not (
-                        urlparse(url).scheme or url.startswith("git@")
-                    ):
-                        for skill in group:
-                            skill.status = Status.UNSUPPORTED
-                            skill.reason = "Original Git URL missing from lock; cannot infer host."
-                        continue
-                    with tempfile.TemporaryDirectory(prefix="sky-check-") as directory:
-                        root = Path(directory) / "repo"
-                        args = ["git", "clone", "--depth", "1", "--single-branch"]
-                        if ref:
-                            args.extend(["--branch", ref])
-                        args.extend(["--", url, str(root)])
-                        await self.runtime.process(args, self.project)
-                        await self._compare(root, group, git=True)
-                else:
+        await gather_all(*(check_group(*key, group) for key, group in groups.items()))
+
+    async def _check_source(self, kind: str, source: str, ref: str, group: list[Skill]) -> None:
+        try:
+            if kind == "local":
+                root = Path(source)
+                if not root.exists():
+                    for skill in group:
+                        skill.status = Status.DEPRECATED
+                        skill.reason = "Recorded local source no longer exists."
+                    return
+                await self._compare(root, group, git=False)
+            elif kind in {"github", "gitlab", "git"}:
+                url = source.split("#", 1)[0]
+                if kind == "github" and not urlparse(url).scheme and not url.startswith("git@"):
+                    url = f"https://github.com/{url}.git"
+                elif kind in {"git", "gitlab"} and not (
+                    urlparse(url).scheme or url.startswith("git@")
+                ):
                     for skill in group:
                         skill.status = Status.UNSUPPORTED
-                        skill.reason = f"{kind} sources do not support folder comparison here."
-            except (CommandError, TimeoutError, OSError) as error:
+                        skill.reason = "Original Git URL missing from lock; cannot infer host."
+                    return
+                directory = tempfile.TemporaryDirectory(prefix="sky-check-")
+                try:
+                    root = Path(directory.name) / "repo"
+                    args = ["git", "clone", "--depth", "1", "--single-branch"]
+                    if ref:
+                        args.extend(["--branch", ref])
+                    args.extend(["--", url, str(root)])
+                    await self.runtime.process(args, self.project)
+                    await self._compare(root, group, git=True)
+                finally:
+                    # Deleting a large clone can take a while; keep it off the UI thread.
+                    await asyncio.to_thread(directory.cleanup)
+            else:
                 for skill in group:
-                    skill.status = Status.UNAVAILABLE
-                    skill.reason = (
-                        "Source could not be read (removed, private, offline, or authentication "
-                        f"required). Deprecation is unconfirmed. {error}"
-                    )
+                    skill.status = Status.UNSUPPORTED
+                    skill.reason = f"{kind} sources do not support folder comparison here."
+        except (CommandError, TimeoutError, OSError) as error:
+            for skill in group:
+                skill.status = Status.UNAVAILABLE
+                skill.reason = (
+                    "Source could not be read (removed, private, offline, or authentication "
+                    f"required). Deprecation is unconfirmed. {error}"
+                )
 
     async def _compare(self, root: Path, skills: list[Skill], *, git: bool) -> None:
         # macOS temporary directories may use /var, an alias of /private/var.
         # Keep discovery, recorded paths and relative Git paths in the same namespace.
         root = root.resolve()
         found = await asyncio.to_thread(discover, root)
+        comparable: list[tuple[Skill, Path, str, bool]] = []
         for skill in skills:
             recorded = skill.metadata.get("skillPath")
             candidates = [path for name, path in found if name == skill.name]
@@ -262,27 +304,46 @@ class SkillsService:
             if len(candidates) > 1:
                 skill.status, skill.reason = Status.UNSUPPORTED, "Ambiguous skill name at source."
                 continue
-            folder = candidates[0].parent
             expected = str(
                 skill.metadata.get("computedHash") or (skill.metadata.get("skillFolderHash") or "")
             )
             if not expected:
                 skill.status, skill.reason = Status.UNSUPPORTED, "No comparable hash in lock."
                 continue
-            if git and skill.scope == "global" and re.fullmatch(r"[0-9a-fA-F]{40}", expected):
-                relative = folder.relative_to(root).as_posix()
-                revision = "HEAD^{tree}" if relative == "." else "HEAD:" + relative
-                actual = (await self.runtime.process(["git", "rev-parse", revision], root)).strip()
-            else:
-                actual = await self.runtime.folder_hash(folder)
             moved = bool(recorded and candidates[0].relative_to(root).as_posix() != recorded)
-            skill.status = Status.OUTDATED if actual != expected or moved else Status.CURRENT
+            comparable.append((skill, candidates[0].parent, expected, moved))
+
+        def tree_hash(skill: Skill, expected: str) -> bool:
+            # Global locks record Git tree SHAs; project locks record folder hashes.
+            sha = re.fullmatch(r"[0-9a-fA-F]{40}", expected)
+            return git and skill.scope == "global" and sha is not None
+
+        async def revision(folder: Path) -> str:
+            relative = folder.relative_to(root).as_posix()
+            spec = "HEAD^{tree}" if relative == "." else "HEAD:" + relative
+            return (await self.runtime.process(["git", "rev-parse", spec], root)).strip()
+
+        trees = [(skill, folder) for skill, folder, sha, _ in comparable if tree_hash(skill, sha)]
+        folders = [
+            (skill, folder) for skill, folder, sha, _ in comparable if not tree_hash(skill, sha)
+        ]
+        tree_hashes, folder_hashes = await gather_all(
+            gather_all(*(revision(folder) for _, folder in trees)),
+            self.runtime.folder_hashes([folder for _, folder in folders]),
+        )
+        actual = {
+            id(skill): value
+            for (skill, _), value in zip(trees + folders, tree_hashes + folder_hashes, strict=True)
+        }
+        for skill, _, expected, moved in comparable:
+            changed = actual[id(skill)] != expected
+            skill.status = Status.OUTDATED if changed or moved else Status.CURRENT
             skill.reason = (
                 "Skill moved upstream."
                 if moved
                 else (
                     "Source folder differs from the locked version."
-                    if actual != expected
+                    if changed
                     else "Source folder matches the locked version."
                 )
             )

@@ -3,9 +3,9 @@
 import pytest
 from rich.text import Text
 from textual.content import Content
-from textual.widgets import Button, Input, Select
+from textual.widgets import Button, DataTable, Input, Select, Static
 
-from sky_skills_tui.app import ConfirmScreen, SkillsApp
+from sky_skills_tui.app import ConfirmScreen, PreviewPane, SkillsApp
 from sky_skills_tui.models import Inventory, Skill, Status
 from sky_skills_tui.service import SkillsService
 
@@ -48,11 +48,13 @@ class FakeService(SkillsService):
     async def installed(self, skills):
         pass
 
-    async def check(self, skills):
+    async def check(self, skills, progress=None):
         if self.failure:
             raise RuntimeError("source unavailable")
         for skill in skills:
             skill.status = Status.OUTDATED
+        if progress is not None:
+            progress(1, 1, skills)
 
     async def remove(self, skills):
         self.removed = [s.key for s in skills]
@@ -129,9 +131,10 @@ async def test_error_recovery_and_remove_cancel(tmp_path, confirm_key):
 
 @pytest.mark.parametrize("size", [(80, 24), (140, 45)])
 async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
-    from rich.markdown import Markdown
     from textual.containers import VerticalScroll
     from textual.widgets import Static
+
+    from sky_skills_tui.presentation import RenderedMarkdown
 
     service = FakeService(tmp_path)
     folder = tmp_path / "alpha"
@@ -163,8 +166,8 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
         scroll = app.query_one("#content-scroll", VerticalScroll)
         assert app.focused is scroll
         assert scroll.max_scroll_y > 0
-        preview = app.query_one("#content", Static).content
-        assert isinstance(preview, Markdown) and preview.markup == body
+        preview = app.query_one("#content", PreviewPane).content
+        assert isinstance(preview, RenderedMarkdown) and preview.markdown.markup == body
         assert "description: Example" in str(app.query_one("#metadata", Static).content)
         await pilot.press("pagedown")
         await pilot.pause()
@@ -195,9 +198,10 @@ async def test_dropdown_and_keyboard_scrolling(tmp_path, size):
 async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
     from unittest.mock import patch
 
-    from rich.markdown import Markdown
     from textual.containers import VerticalScroll
-    from textual.widgets import DataTable, Static, TabbedContent
+    from textual.widgets import DataTable, TabbedContent
+
+    from sky_skills_tui.presentation import RenderedMarkdown
 
     service = FakeService(tmp_path)
     bodies = {}
@@ -216,18 +220,18 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
     app = SkillsApp(service, bootstrap=False)
     async with app.run_test(size=size) as pilot:
         await pilot.pause()
-        content = app.query_one("#content", Static)
+        content = app.query_one("#content", PreviewPane)
         table = app.query_one("#skills", DataTable)
         tabs = app.query_one("#inspector-tabs", TabbedContent)
         scroll = app.query_one("#content-scroll", VerticalScroll)
         table.move_cursor(row=1)
         await pilot.pause()
-        assert not isinstance(content.content, Markdown)
+        assert not isinstance(content.content, RenderedMarkdown)
 
         await pilot.press("v")
         await pilot.pause()
         beta = content.content
-        assert isinstance(beta, Markdown) and beta.markup == bodies["beta"]
+        assert isinstance(beta, RenderedMarkdown) and beta.markdown.markup == bodies["beta"]
         assert not content.children
         await pilot.press("pagedown")
         await pilot.pause()
@@ -252,7 +256,7 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
         await pilot.press("v")
         await pilot.pause()
         alpha = content.content
-        assert isinstance(alpha, Markdown) and alpha.markup == bodies["alpha"]
+        assert isinstance(alpha, RenderedMarkdown) and alpha.markdown.markup == bodies["alpha"]
         assert scroll.scroll_y == 0
 
         tabs.active = "metadata-tab"
@@ -266,12 +270,14 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
         tabs.active = "content-tab"
         await pilot.pause()
         refreshed = content.content
-        assert isinstance(refreshed, Markdown) and refreshed.markup == changed_body
-        assert refreshed.code_theme == "friendly"
+        assert isinstance(refreshed, RenderedMarkdown) and refreshed.markdown.markup == changed_body
+        assert refreshed.markdown.code_theme == "friendly"
         app.theme = "sky"
         await pilot.pause()
         refreshed = content.content
-        assert isinstance(refreshed, Markdown) and refreshed.code_theme == "monokai"
+        assert (
+            isinstance(refreshed, RenderedMarkdown) and refreshed.markdown.code_theme == "monokai"
+        )
 
         app.action_help()
         app.theme = "textual-light"
@@ -279,7 +285,9 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
         await pilot.press("escape")
         await pilot.pause()
         refreshed = content.content
-        assert isinstance(refreshed, Markdown) and refreshed.code_theme == "friendly"
+        assert (
+            isinstance(refreshed, RenderedMarkdown) and refreshed.markdown.code_theme == "friendly"
+        )
 
         await pilot.press("escape")
         await pilot.resize_terminal(80, 24)
@@ -289,12 +297,12 @@ async def test_preview_is_lazy_and_refreshes_when_reopened(tmp_path, size):
         await pilot.resize_terminal(140, 45)
         await pilot.pause()
         resized = content.content
-        assert isinstance(resized, Markdown) and resized.markup == bodies["beta"]
+        assert isinstance(resized, RenderedMarkdown) and resized.markdown.markup == bodies["beta"]
 
         app.query_one("#filter", Input).value = "unmatched"
         await pilot.pause()
         empty = content.content
-        assert isinstance(empty, Markdown) and empty.markup == "No skill selected."
+        assert isinstance(empty, RenderedMarkdown) and empty.markdown.markup == "No skill selected."
 
 
 async def test_install_settings_help_and_activity(tmp_path):
@@ -386,3 +394,165 @@ async def test_resize_empty_and_unicode(tmp_path):
         await pilot.press("end", "question_mark")
         assert app.query_one("#filter", Input).value == "unmatched?"
         assert len(app.screen_stack) == 1
+
+
+async def test_escape_steps_back_and_selection_updates_rows_in_place(tmp_path, monkeypatch):
+    app = SkillsApp(FakeService(tmp_path), bootstrap=False)
+    async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.pause()
+        table = app.query_one("#skills", DataTable)
+        cleared = []
+        original_clear = table.clear
+        monkeypatch.setattr(
+            table,
+            "clear",
+            lambda *args, **kwargs: cleared.append(1) or original_clear(*args, **kwargs),
+        )
+        await pilot.press("space", "a")
+        assert not cleared, "selection changes must not rebuild the table"
+        assert app.selected == {"project:alpha", "global:beta", "project:gamma"}
+        assert str(table.get_cell("project:alpha", "mark")) == "✓"
+
+        # Escape leaves the filter instead of discarding the selection.
+        await pilot.press("slash", "o")
+        await pilot.press("escape")
+        assert table.has_focus and len(app.selected) == 3
+        await pilot.press("b")
+        assert app.query_one("#source", Input).has_focus
+        await pilot.press("escape")
+        assert table.has_focus and not app.query_one("#source-bar").display
+        assert len(app.selected) == 3
+
+        await pilot.press("escape")
+        assert not app.selected
+        assert str(table.get_cell("project:alpha", "mark")) == "○"
+
+
+async def test_long_preview_renders_in_background(tmp_path, monkeypatch):
+    from sky_skills_tui.presentation import RenderedMarkdown
+
+    service = FakeService(tmp_path)
+    folder = tmp_path / "alpha"
+    folder.mkdir()
+    body = "# Long skill\n\n" + "\n\n".join(
+        f"## Section {i}\n\n```python\nprint({i})\n```\n\n| A | B |\n| - | - |\n| 1 | 2 |"
+        for i in range(200)
+    )
+    (folder / "SKILL.md").write_text(body)
+    service.rows[0].installed_path = folder
+    app = SkillsApp(service, bootstrap=False)
+    async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.pause()
+        content = app.query_one("#content", PreviewPane)
+        shown = []
+        original_update = content.update
+        monkeypatch.setattr(
+            content, "update", lambda value: shown.append(value) or original_update(value)
+        )
+        await pilot.press("v")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # A placeholder appears at once; the document follows from a worker.
+        assert [type(value) for value in shown] == [Text, RenderedMarkdown]
+        assert str(shown[0]) == "Rendering SKILL.md…"
+        rendered = content.content
+        assert isinstance(rendered, RenderedMarkdown) and rendered.markdown.markup == body
+        assert content.virtual_size.height > 1000
+        # Moving away and back reuses the rendered document.
+        await pilot.press("escape", "down", "up")
+        await pilot.pause()
+        assert content.content is rendered
+
+
+async def test_busy_operations_show_progress_and_can_be_cancelled(tmp_path, monkeypatch):
+    import asyncio
+
+    class SlowService(FakeService):
+        started = asyncio.Event()
+
+        async def check(self, skills, progress=None):
+            self.started.set()
+            await asyncio.Event().wait()
+
+    service = SlowService(tmp_path)
+    app = SkillsApp(service, bootstrap=False)
+    notices = []
+    async with app.run_test(size=(140, 45)) as pilot:
+        monkeypatch.setattr(app, "notify", lambda message, **kwargs: notices.append(message))
+        await pilot.press("c")
+        await service.started.wait()
+        await pilot.pause()
+        operation = str(app.query_one("#operation", Static).content)
+        assert app.busy and "Checking 3 skill(s)…" in operation and "Esc cancels" in operation
+        table = app.query_one("#skills", DataTable)
+        assert "checking…" in str(table.get_cell("project:alpha", "status"))
+
+        await pilot.press("c")
+        assert notices and "still running" in notices[-1]
+
+        await pilot.press("escape")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert not app.busy and not app.pending
+        assert str(app.query_one("#operation", Static).content) == "Cancelled: Checking 3 skill(s)."
+        assert "unchecked" in str(table.get_cell("project:alpha", "status"))
+
+        # Changes to installed files cannot be interrupted by quitting.
+        never = asyncio.Event()
+
+        async def remove():
+            await never.wait()
+            return "Removed."
+
+        app.start_operation("Removing 1 skill(s)", remove())
+        await pilot.press("q")
+        assert app.is_running and "must finish first" in notices[-1]
+        never.set()
+        await app.workers.wait_for_complete()
+
+
+async def test_dialog_shortcuts_avoid_os_conflicts(tmp_path):
+    from textual.widgets import SelectionList
+
+    from sky_skills_tui.agents import AGENT_IDS
+    from sky_skills_tui.screens import AgentPickerScreen, HelpScreen, InstallScreen
+
+    service = FakeService(tmp_path)
+    app = SkillsApp(service, bootstrap=False)
+    async with app.run_test(size=(140, 45)) as pilot:
+        await pilot.press("i")
+        assert isinstance(app.screen, InstallScreen)
+        assert_letter_shortcut(app.screen, "choose-agents", "a")
+        await pilot.press("a")
+        assert isinstance(app.screen, AgentPickerScreen)
+        picker = app.screen
+        assert_letter_shortcut(picker, "all-agents", "a")
+        assert_letter_shortcut(picker, "clear-agents", "c")
+        # Letters type into the search field (macOS sends Option+A as "å").
+        await pilot.press("c", "o")
+        assert picker.query_one("#agent-search", Input).value == "co"
+        assert picker.targets == {"codex"}
+        await pilot.press("backspace", "backspace", "down")
+        assert picker.query_one("#agent-list", SelectionList).has_focus
+        await pilot.press("a")
+        assert picker.targets == set(AGENT_IDS)
+        await pilot.press("c")
+        assert not picker.targets
+        await pilot.press("up")
+        assert picker.query_one("#agent-search", Input).has_focus
+        await pilot.press("alt+a")
+        assert picker.targets == set(AGENT_IDS)
+        await pilot.press("escape", "escape")
+        assert len(app.screen_stack) == 1
+
+        # Terminals that send a line feed for Ctrl+Enter still confirm.
+        await pilot.press("d", "ctrl+j")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert service.removed == ["project:alpha"]
+
+        for opener, closer in (("question_mark", "q"), ("question_mark", "question_mark")):
+            await pilot.press(opener)
+            assert isinstance(app.screen, HelpScreen)
+            await pilot.press(closer)
+            assert len(app.screen_stack) == 1
