@@ -32,6 +32,13 @@ from .presentation import shortcut_label
 # Ctrl+Enter from Enter at all. F2 works everywhere (Fn+F2 on Mac keyboards).
 APPLY_KEYS = "ctrl+enter,ctrl+j,f2"
 
+
+class ActionButton(Button):
+    """Space presses a focused button too, as on desktop platforms."""
+
+    BINDINGS = [Binding("space", "press", "Press button", show=False)]
+
+
 HELP = """# Using Sky
 
 ## Read and select
@@ -42,7 +49,8 @@ it returns to the list, during a check or browse it cancels, and otherwise it cl
 the selection. Selections survive filtering; the selected count includes hidden rows.
 
 **/** focuses search. **V · View skill** opens SKILL.md. At narrow widths,
-**V · Close view** returns to the list. **Tab / Shift+Tab** moves focus.
+**V · Close view** returns to the list. **Tab / Shift+Tab** moves focus, including
+in dialogs, and **Space** or **Enter** presses the focused button.
 In a preview, use **↑ / ↓, Page Up / Page Down, Home / End** or the mouse wheel.
 Use the Details, SKILL.md and Metadata tabs to switch views.
 
@@ -78,9 +86,10 @@ updates each source's rows as soon as that source finishes.
 
 **L · Activity log** opens operation history, including full error details. **?** opens
 this help (**F1** too, where the terminal does not reserve it). **Ctrl+P** opens the
-command palette, including theme selection. **Escape** or **Q** closes a dialog.
-**Q** quits; it cancels a running check, browse or refresh, but waits for installs,
-updates and removals to finish.
+command palette, including theme selection. **Escape** closes a dialog; **Q** also
+closes Help and Activity log. **Q** quits from the library, and **Ctrl+Q** from
+anywhere. Quitting cancels a running check, browse or refresh, but waits for
+installs, updates and removals to finish.
 """
 
 
@@ -91,7 +100,7 @@ class HelpScreen(ModalScreen[None]):
         with Vertical(classes="reader-dialog"):
             with VerticalScroll(id="help-scroll", can_focus=True):
                 yield Markdown(HELP)
-            yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
+            yield ActionButton(shortcut_label("Close · Esc", "Esc"), id="close")
 
     def on_mount(self) -> None:
         self.query_one("#help-scroll").focus()
@@ -112,7 +121,7 @@ class ActivityScreen(ModalScreen[None]):
         with Vertical(classes="reader-dialog"):
             yield Label("Activity log", classes="dialog-title")
             yield RichLog(id="activity-log", wrap=True, markup=False, max_lines=300)
-            yield Button(shortcut_label("Close · Esc", "Esc"), id="close")
+            yield ActionButton(shortcut_label("Close · Esc", "Esc"), id="close")
 
     def on_mount(self) -> None:
         log = self.query_one(RichLog)
@@ -167,14 +176,16 @@ class AgentPickerScreen(ModalScreen[str | None]):
             yield Input(placeholder="Find agent…", id="agent-search")
             yield Static("", id="agent-count", markup=False)
             with Horizontal(id="agent-toolbar"):
-                yield Button(shortcut_label(f"Select all {len(AGENTS)}", "a"), id="all-agents")
-                yield Button(shortcut_label("Clear", "c"), id="clear-agents")
+                yield ActionButton(
+                    shortcut_label(f"Select all {len(AGENTS)}", "a"), id="all-agents"
+                )
+                yield ActionButton(shortcut_label("Clear", "c"), id="clear-agents")
             yield AgentSelectionList(id="agent-list")
             yield Static("No matching agents.", id="agent-empty")
             yield Static("All includes agents not installed on this machine.", classes="muted")
             with Horizontal(classes="dialog-actions"):
-                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel-agents")
-                yield Button(
+                yield ActionButton(shortcut_label("Cancel · Esc", "Esc"), id="cancel-agents")
+                yield ActionButton(
                     shortcut_label("Use selection · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
                     id="use-agents",
                     variant="primary",
@@ -307,15 +318,15 @@ class InstallScreen(ModalScreen[InstallOptions | None]):
                 yield Label("Target agents")
                 with Horizontal(id="agent-summary-row"):
                     yield Static(agent_summary(self.agents), id="agent-summary", markup=False)
-                    yield Button(shortcut_label("Choose agents…", "a"), id="choose-agents")
+                    yield ActionButton(shortcut_label("Choose agents…", "a"), id="choose-agents")
                 yield Checkbox("Copy files instead of linking", value=self.options.copy, id="copy")
                 yield Static(
                     "Links share one installation. Copies are independent.", classes="muted"
                 )
                 yield Static("", id="install-error", markup=False)
             with Horizontal(classes="dialog-actions"):
-                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
-                yield Button(
+                yield ActionButton(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
+                yield ActionButton(
                     shortcut_label(f"{self.verb} · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
                     id="apply-install",
                     variant="primary",

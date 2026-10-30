@@ -39,6 +39,10 @@ contract and release process.
   until a slow or unreachable source times out.
 - Dialogs also accept Ctrl+J, which some terminals send for Ctrl+Enter.
 - Escape in the filter field no longer clears the current selection.
+- Tab and Shift+Tab move focus inside dialogs again, and Ctrl+Q and Ctrl+P
+  work while a dialog is open. Library shortcuts remain paused behind dialogs.
+- Space presses the focused button, as on desktop platforms, so Delete skills
+  and other dialog actions can be reached with Tab and Space.
 
 ## [0.2.0] - 2026-10-05
 

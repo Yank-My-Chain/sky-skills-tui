@@ -38,7 +38,14 @@ from .models import Skill, Status
 from .preferences import AgentPreferences
 from .presentation import RenderedMarkdown, SkillMarkdown, shortcut_label, split_frontmatter
 from .runtime import SKILLS_VERSION
-from .screens import APPLY_KEYS, ActivityScreen, HelpScreen, InstallOptions, InstallScreen
+from .screens import (
+    APPLY_KEYS,
+    ActionButton,
+    ActivityScreen,
+    HelpScreen,
+    InstallOptions,
+    InstallScreen,
+)
 from .service import SkillsService
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -66,8 +73,8 @@ class ConfirmScreen(ModalScreen[bool]):
             yield Label("Review deletion", id="confirm-title")
             yield Static(self.message, markup=False)
             with Horizontal():
-                yield Button(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
-                yield Button(
+                yield ActionButton(shortcut_label("Cancel · Esc", "Esc"), id="cancel")
+                yield ActionButton(
                     shortcut_label("Delete skills · Ctrl+Enter / F2", "Ctrl+Enter / F2"),
                     id="confirm",
                     variant="error",
@@ -156,8 +163,10 @@ class SkillsApp(App[None]):
         Binding("v", "inspect", "View skill"),
         Binding("l", "activity", "Activity log", show=False),
         Binding("question_mark,f1", "help", "Help", key_display="?"),
-        Binding("q", "quit", "Quit"),
+        Binding("q", "request_quit", "Quit"),
     ]
+    # Library shortcuts pause behind dialogs; Tab, Ctrl+Q and Ctrl+P keep working there.
+    LIBRARY_ACTIONS = frozenset(binding.action for binding in BINDINGS)
 
     def __init__(self, service: SkillsService, *, bootstrap: bool = True) -> None:
         super().__init__()
@@ -220,13 +229,13 @@ class SkillsApp(App[None]):
                     id="scope",
                 )
                 yield Input(placeholder="Filter name, source, status or agent…", id="filter")
-                yield Button(
+                yield ActionButton(
                     shortcut_label("Browse skills", "b"), id="add-source", variant="primary"
                 )
             with Horizontal(id="source-bar"):
                 yield Input(placeholder="owner/repo, Git URL or local path", id="source")
-                yield Button("Browse", id="browse", variant="primary")
-                yield Button("Back to library", id="library")
+                yield ActionButton("Browse", id="browse", variant="primary")
+                yield ActionButton("Back to library", id="library")
             yield Static("Loading lock files…", id="summary", markup=False)
             with Horizontal(id="main"):
                 with Vertical(id="list-panel"):
@@ -251,13 +260,15 @@ class SkillsApp(App[None]):
                                 yield Static("", id="metadata", markup=False)
             yield Static("", id="action-context", markup=False)
             with HorizontalScroll(id="actions"):
-                yield Button(shortcut_label("Check updates", "c"), id="check", variant="primary")
-                yield Button(shortcut_label("Update", "u"), id="update")
-                yield Button(shortcut_label("Reinstall…", "i"), id="install")
-                yield Button(shortcut_label("Delete…", "d"), id="remove")
-                yield Button(shortcut_label("View skill", "v"), id="inspect")
-                yield Button(shortcut_label("Activity log", "l"), id="activity")
-                yield Button(shortcut_label("Help", "?"), id="help")
+                yield ActionButton(
+                    shortcut_label("Check updates", "c"), id="check", variant="primary"
+                )
+                yield ActionButton(shortcut_label("Update", "u"), id="update")
+                yield ActionButton(shortcut_label("Reinstall…", "i"), id="install")
+                yield ActionButton(shortcut_label("Delete…", "d"), id="remove")
+                yield ActionButton(shortcut_label("View skill", "v"), id="inspect")
+                yield ActionButton(shortcut_label("Activity log", "l"), id="activity")
+                yield ActionButton(shortcut_label("Help", "?"), id="help")
             yield Static("Ready · ? for help", id="operation", markup=False)
         yield Static(
             "Sky needs at least 80 columns × 24 rows.\nResize the terminal to continue. Q quits.",
@@ -303,7 +314,7 @@ class SkillsApp(App[None]):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if len(self.screen_stack) > 1:
-            return False
+            return action not in self.LIBRARY_ACTIONS
         if action in {"toggle_skill", "select_all", "select_source", "select_outdated"}:
             return isinstance(self.focused, DataTable)
         return True
@@ -947,6 +958,9 @@ class SkillsApp(App[None]):
             self.render_rows()
             if len(self.screen_stack) == 1:
                 self.query_one("#skills", DataTable).focus()
+
+    async def action_request_quit(self) -> None:
+        await self.action_quit()
 
     async def action_quit(self) -> None:
         if self.busy:

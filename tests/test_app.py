@@ -556,3 +556,52 @@ async def test_dialog_shortcuts_avoid_os_conflicts(tmp_path):
             assert isinstance(app.screen, HelpScreen)
             await pilot.press(closer)
             assert len(app.screen_stack) == 1
+
+
+async def test_dialogs_keep_standard_focus_keys(tmp_path):
+    from sky_skills_tui.screens import AgentPickerScreen, InstallScreen
+
+    class CatalogService(FakeService):
+        installs: list[list[str]] = []
+
+        async def browse(self, source, scope):
+            return [Skill("delta", source, "available", self.lock_path(scope))]
+
+        async def install(self, skills, agents, *, copy=False):
+            self.installs.append(agents)
+            return "Installed."
+
+    service = CatalogService(tmp_path)
+    app = SkillsApp(service, bootstrap=False)
+    async with app.run_test(size=(140, 45)) as pilot:
+        # Tab and Space work in dialogs as they do in desktop applications.
+        await pilot.press("d")
+        assert app.focused is app.screen.query_one("#cancel")
+        await pilot.press("q")
+        assert isinstance(app.screen, ConfirmScreen) and app.is_running
+        await pilot.press("tab")
+        assert app.focused is app.screen.query_one("#confirm")
+        await pilot.press("shift+tab", "tab", "space")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert service.removed == ["project:alpha"]
+
+        await pilot.press("b")
+        app.query_one("#source", Input).value = "owner/repo"
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.press("i")
+        install = app.screen
+        assert isinstance(install, InstallScreen)
+        # Letters search an open dropdown; Escape closes only the dropdown.
+        await pilot.press("enter", "g")
+        assert isinstance(app.screen, InstallScreen)
+        await pilot.press("escape")
+        assert app.screen is install
+        # F2 in the stacked picker applies the picker, not the installation.
+        await pilot.press("a")
+        assert isinstance(app.screen, AgentPickerScreen)
+        await pilot.press("f2")
+        assert app.screen is install and not service.installs
+        await pilot.press("ctrl+q")
+        assert not app.is_running
