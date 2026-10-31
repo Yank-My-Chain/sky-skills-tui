@@ -1,14 +1,14 @@
 # Using the TUI
 
-Launch `sky` inside a project, or pass `--project`. The app reads that project's `skills-lock.json` and your global lock. The summary shows visible skills, selected skills, and outdated skills. Press **L** or choose **Activity log** to read operations and full error details. Press **?** or **F1** for help that explains each action.
+Launch `sky` inside a project, or pass `--project`. The app reads that project's `skills-lock.json` and your global lock. The summary shows visible skills, selected skills, and outdated skills. Press **L** or choose **Activity log** to read operations and full error details. Press **?** for help that explains each action. **F1** also opens help, except in terminals that reserve it, such as GNOME Terminal and VS Code.
 
 ## Inspect installed skills
 
 Move through rows with the arrow keys. Each row shows the skill and source, with status and scope alongside. **Details** shows the source, branch, status and agents; **Metadata** holds paths, raw lock fields and SKILL.md frontmatter. Action buttons underline their letter shortcut within the label. Special keys such as **?** and **Esc** appear as separate hints.
 
-Dialogs show their own shortcuts on the buttons. **Ctrl+Enter** or **F2** activates the current dialog's primary action: **Use selection**, **Install**, **Reinstall**, **Update**, or **Delete skills**. **Esc** cancels. These shortcuts work while a field or list has focus; ordinary Enter and Space keep operating the focused control. F2 provides the same action in terminals that cannot distinguish Ctrl+Enter from Enter.
+Dialogs show their own shortcuts on the buttons. **Ctrl+Enter** or **F2** activates the current dialog's primary action: **Use selection**, **Install**, **Reinstall**, **Update**, or **Delete skills**. **Esc** cancels. These shortcuts work while a field or list has focus; ordinary Enter and Space keep operating the focused control. F2 works in every terminal (press Fn+F2 on Mac keyboards). Ctrl+Enter needs a terminal that reports it separately, such as kitty, WezTerm, Ghostty, or foot; macOS Terminal.app and tmux (by default) send plain Enter instead. Help, Activity log, and other read-only dialogs also close with **Q**.
 
-Choose **View skill** or press **V** to open the formatted **SKILL.md** preview. Use the mouse wheel, arrows, Page Up/Down or Home/End to scroll. YAML frontmatter is separated from the instructions so it is not rendered as a Markdown heading. Tab and Shift+Tab move between controls; Escape returns focus to the list.
+Choose **View skill** or press **V** to open the formatted **SKILL.md** preview. Use the mouse wheel, arrows, Page Up/Down or Home/End to scroll. YAML frontmatter is separated from the instructions so it is not rendered as a Markdown heading. Tab and Shift+Tab move between controls, including inside dialogs, and Space or Enter presses the focused button; Escape returns focus to the list. Long SKILL.md files render in the background, so the list stays responsive while **Rendering SKILL.md…** is shown.
 
 At widths below 120 columns the library and inspector share one pane. **V** opens the inspector, and the button becomes **Close view**, still with V underlined. Press **V** again or Escape to return to the library. The minimum terminal size is **80 × 24**; below that, Sky asks you to resize. Theme colors adapt when you switch themes through the command palette. UTF-8 is required; mouse and color are enhancements. Arabic/mixed-direction display depends on the terminal's shaping and bidirectional support. For plain or screen-reader-friendly output use `sky list` or `sky list --json`.
 
@@ -22,7 +22,7 @@ Use the scope selector and text filter to narrow the library. Filtering matches 
 | A | Toggle selection of all visible rows |
 | S | Select visible rows from the highlighted source |
 | O | Select visible outdated skills |
-| Escape | Clear the current view's selection |
+| Escape | Step back: leave the filter or preview, cancel a running check/browse/refresh, otherwise clear the selection |
 | / | Focus the filter |
 | C | Check selected skills, or every visible skill if nothing is selected |
 | U | Update selected skills, or the highlighted skill |
@@ -30,10 +30,10 @@ Use the scope selector and text filter to narrow the library. Filtering matches 
 | B | Open the source field to browse new skills |
 | V | View the highlighted skill; toggle Close view at narrow widths |
 | L | Open activity and error details |
-| ? or F1 | Explain controls and shortcuts |
+| ? (or F1) | Explain controls and shortcuts |
 | D | Review deletion of selected skills, or the highlighted skill |
 | R | Reload locks and installation locations |
-| Q | Quit after an operation finishes |
+| Q | Quit; cancels a running check, browse or refresh, and waits for installs, updates and removals |
 
 Selections survive filtering. The count includes hidden selected rows, and operations apply to the entire selection. Library and catalog selections are kept separately. **Select source** respects the current filter and scope; clear filters to select every skill from a location. At narrow widths Activity log and Help remain available through **L** and **?**, keeping the action row visible.
 
@@ -41,9 +41,9 @@ Selections survive filtering. The count includes hidden selected rows, and opera
 
 Choose **Browse skills** (B), then enter an `owner/repo`, a repository URL, a branch-qualified source such as `owner/repo#release/v1`, or a local path. Press Enter or click **Browse** to load the upstream catalog. Select multiple rows, or press A to select the whole catalog.
 
-Choose **Install…** to open installation settings. Choose the target project/global scope, select **Choose agents…** (**Alt+A**), and choose whether to copy files instead of linking. The dialog explains both modes. **Ctrl+Enter** or **F2** confirms the installation settings. Install batches selected names by source and scope. Cancel or Escape leaves installations unchanged.
+Choose **Install…** to open installation settings. Choose the target project/global scope, select **Choose agents…** (**A**), and choose whether to copy files instead of linking. The dialog explains both modes. **Ctrl+Enter** or **F2** confirms the installation settings. Install batches selected names by source and scope. Cancel or Escape leaves installations unchanged.
 
-The agent picker shows the supported targets from the managed CLI. Codex, GitHub Copilot, Cursor, Claude Code, Gemini CLI, and OpenCode appear first, followed by a subtle divider and the remaining agents alphabetically. Search matches display names and identifiers; selections survive filtering. Press **Down** from search to enter the list, use **↑ / ↓** to move and **Space / Enter** to toggle. **Select all 79** (**Alt+A**) and **Clear** (**Alt+C**) apply to the entire catalogue, including hidden rows. Selecting all asks upstream to install for every supported agent, even agents absent from this machine.
+The agent picker shows the supported targets from the managed CLI. Codex, GitHub Copilot, Cursor, Claude Code, Gemini CLI, and OpenCode appear first, followed by a subtle divider and the remaining agents alphabetically. Search matches display names and identifiers; selections survive filtering. Press **Down** from search to enter the list, use **↑ / ↓** to move and **Space / Enter** to toggle. **Select all 79** (**A**) and **Clear** (**C**) apply to the entire catalogue, including hidden rows. Letters type into the search field while it has focus; from there use **Alt+A** and **Alt+C** instead. macOS terminals send Option+A as `å` unless Option is set to act as Meta (Esc+ in iTerm2), so press **Down** to enter the list and use the letters. Selecting all asks upstream to install for every supported agent, even agents absent from this machine.
 
 **Use selection** (**Ctrl+Enter** or **F2**) confirms the agents and saves them as your default for subsequent installations, updates, restores, and future Sky launches across projects. It does not install anything or confirm the installation dialog underneath. At least one agent must be selected. Cancel or Escape in the picker preserves your previous default. The initial default is Codex. Sky stores only agent defaults in its user configuration directory (`~/.config/sky/preferences.json` on Linux, respecting `XDG_CONFIG_HOME`); scope and copy mode remain session settings. These preferences do not modify upstream skill locks.
 
@@ -51,7 +51,7 @@ After installation, the library reloads from upstream's newly written lock. Miss
 
 ## Check and update
 
-Checking compares the source with the installed lock hash. It does not change files or locks. It fetches one snapshot for each source/ref, compares the whole folder including supporting files, and marks moved skills outdated. Git sources require Git; existing Git credentials and explicit environment settings pass through to upstream operations.
+Checking compares the source with the installed lock hash. It does not change files or locks. It fetches one snapshot for each source/ref, compares the whole folder including supporting files, and marks moved skills outdated. Up to four sources are fetched at once. Rows being checked show **checking…**, and each source's results appear as soon as it finishes. The status line shows a spinner, progress, and elapsed time; press **Escape** to cancel and keep the results already shown. Git sources require Git; existing Git credentials and explicit environment settings pass through to upstream operations.
 
 **Update** opens installation settings, then reinstalls selected skills from their recorded sources and refs through `skills add`, refreshing upstream's locks. It uses your saved agent defaults and the copy setting you choose in that dialog. Those settings are explicit because the lock does not fully record installation mode or agent placement. Existing links to other agents are not removed; independent copies for other agents may need their own update. Confirmed removed skills are excluded from updating.
 

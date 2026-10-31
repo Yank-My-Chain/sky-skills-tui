@@ -112,3 +112,43 @@ async def test_resolved_root_still_rejects_escaping_recorded_paths(isolated, sou
     await SkillsService(project, Runtime(tmp_path / "npm"), home).check([skill])
     assert skill.status == Status.UNSUPPORTED
     assert skill.reason == "Unsafe skillPath in lock."
+
+
+async def test_check_runs_sources_concurrently_with_progress_and_batched_hashes(
+    isolated, source, tmp_path, monkeypatch
+):
+    home, project = isolated
+    runtime = Runtime(tmp_path / "npm")
+    service = SkillsService(project, runtime, home)
+    names = ["alpha", "beta", "gamma"]
+    hashes = await runtime.folder_hashes([source / name for name in names])
+    assert hashes == [await runtime.folder_hash(source / name) for name in names]
+    copy = tmp_path / "copy"
+    shutil.copytree(source, copy)
+    (copy / "beta/z.txt").write_text("changed upstream")
+    skills = [
+        Skill(
+            name,
+            str(root),
+            "project",
+            project / "skills-lock.json",
+            {"sourceType": "local", "computedHash": expected},
+        )
+        for root in (source, copy)
+        for name, expected in zip(names, hashes, strict=True)
+    ]
+    processes = []
+    original = runtime.process
+
+    async def recording(args, cwd, timeout=180):
+        processes.append(args)
+        return await original(args, cwd, timeout)
+
+    monkeypatch.setattr(runtime, "process", recording)
+    progress = []
+    await service.check(
+        skills, lambda done, total, group: progress.append((done, total, len(group)))
+    )
+    assert progress == [(1, 2, 3), (2, 2, 3)]
+    assert len(processes) == 2, "one hash process per source, not per skill"
+    assert [s.status for s in skills] == [Status.CURRENT] * 4 + [Status.OUTDATED, Status.CURRENT]

@@ -12,6 +12,40 @@ contract and release process.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-30
+
+### Changed
+
+- Checking updates fetches up to four sources at once and hashes each source's
+  skills with one Node process, so large libraries check much faster. Rows show
+  their results as each source finishes.
+- Startup and Refresh list project and global installations concurrently.
+- Running operations show a spinner, progress, and elapsed time. Rows being
+  checked, installed, updated, or removed are marked in the status column.
+- Pressing an action key while an operation runs explains why nothing happened
+  instead of ignoring the key.
+- Escape steps back one level: it leaves the filter or source field, then the
+  preview, then cancels a running check, browse, or refresh, and only then
+  clears the selection.
+- In installation settings, A opens Choose agents. In the agent picker, A and C
+  select all and clear while the list has focus; Alt+A and Alt+C still work from
+  the search field. macOS terminals type å and ç for Option+A and Option+C.
+- Help and Activity log also close with Q, and with the key that opened them.
+
+### Fixed
+
+- Moving through skills with a long SKILL.md preview open no longer freezes the
+  interface. Previews render in the background and are cached.
+- Selecting rows no longer rebuilds the whole table.
+- Q can cancel a check, browse, or refresh and quit, instead of being ignored
+  until a slow or unreachable source times out.
+- Dialogs also accept Ctrl+J, which some terminals send for Ctrl+Enter.
+- Escape in the filter field no longer clears the current selection.
+- Tab and Shift+Tab move focus inside dialogs again, and Ctrl+Q and Ctrl+P
+  work while a dialog is open. Library shortcuts remain paused behind dialogs.
+- Space presses the focused button, as on desktop platforms, so Delete skills
+  and other dialog actions can be reached with Tab and Space.
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
@@ -51,6 +85,7 @@ Initial release.
 - Git-tag-derived package versions, installation documentation, and automated
   checks against the published npm CLI.
 
-[Unreleased]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Yank-My-Chain/sky-skills-tui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Yank-My-Chain/sky-skills-tui/tree/v0.1.0
