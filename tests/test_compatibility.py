@@ -9,7 +9,7 @@ from textual.widgets import DataTable, Input, SelectionList, Static
 
 from sky_skills_tui.agents import AGENTS
 from sky_skills_tui.app import SkillsApp
-from sky_skills_tui.models import Status
+from sky_skills_tui.models import Status, lock_schemas
 from sky_skills_tui.runtime import CommandError, CompatibilityError
 from sky_skills_tui.upstream import json_rows
 
@@ -19,9 +19,15 @@ pytestmark = pytest.mark.integration
 
 
 async def test_agent_catalogue_matches_managed_cli(real_service):
-    cli = real_service.runtime.entry.parent.parent / "dist/cli.mjs"
-    source = cli.read_text(encoding="utf-8")
-    catalogue = source.split("const agents = {", 1)[1].split("\n};", 1)[0]
+    dist = real_service.runtime.entry.parent.parent / "dist"
+    # skills 1.8.0 moved the catalogue from cli.mjs into a shared chunk.
+    sources = [
+        path.read_text(encoding="utf-8")
+        for path in [dist / "cli.mjs", *sorted(dist.glob("_chunks/*.mjs"))]
+    ]
+    defining = [source for source in sources if "const agents = {" in source]
+    assert len(defining) == 1, "expected exactly one agent catalogue in the package"
+    catalogue = defining[0].split("const agents = {", 1)[1].split("\n};", 1)[0]
     upstream = dict(re.findall(r'\n\t\tname: "([^"]+)",\n\t\tdisplayName: "([^"]+)"', catalogue))
     assert upstream == dict(AGENTS)
 
@@ -41,7 +47,7 @@ async def test_cli_lifecycle_contract(real_service, git_source, scope, copy):
     assert {s.name for s in tracked} == {"alpha", "beta"}
     assert all(s.scope == scope for s in tracked)
     lock = json.loads(service.lock_path(scope).read_text())
-    assert lock["version"] == (3 if scope == "global" else 1)
+    assert lock["version"] == lock_schemas(scope, service.runtime.requested_version)[-1]
     hash_field = "skillFolderHash" if scope == "global" else "computedHash"
     for skill in tracked:
         entry = lock["skills"][skill.name]
@@ -51,7 +57,7 @@ async def test_cli_lifecycle_contract(real_service, git_source, scope, copy):
         assert skill.installed_path is not None
         assert (skill.installed_path / "references/Guide.txt").is_file()
     await service.installed(tracked)
-    # npm 1.7.0 reports detected agent links; universal canonical consumers need no link.
+    # npm skills reports detected agent links; universal canonical consumers need no link.
     assert all("Claude Code" in s.agents for s in tracked)
     if scope == "project":
         assert (service.project / ".claude/skills/alpha").is_symlink() is (not copy)

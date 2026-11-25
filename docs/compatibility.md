@@ -1,14 +1,21 @@
 # Locks and upstream compatibility
 
-The managed and tested release is **npm skills 1.7.0**. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime. A managed installation whose version differs from the supported release is reported explicitly; `sky setup --upgrade` repairs it.
+The managed release is **npm skills 1.7.0**. Sky also supports **1.9.0**, and both pass the live contract suite on every push. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime. A managed installation whose version differs from the supported release is reported explicitly; `sky setup --upgrade` repairs it.
 
-During development, 1.6.0 also passed the local CLI contract suite as a candidate, while 1.5.0 failed both lifecycle contracts because `add --json` did not produce the expected JSON array. Only 1.7.0 is declared supported; probing a candidate does not automatically enable it for normal use.
+During development, 1.6.0 also passed the local CLI contract suite as a candidate, while 1.5.0 failed both lifecycle contracts because `add --json` did not produce the expected JSON array. Releases 1.7.5 through 1.9.0 changed several contracts. Sky handles each one, and the shapes from 1.7.6 and 1.8.1 also pass the live suite:
+
+- **1.7.5:** `skills list --json` tags each row with a `status` (`tracked`, `untracked`, or `modified` since 1.9.0). It also lists locked skills that are not on disk as `status: "missing"` rows with `path: null`. Sky treats these skills as not installed.
+- **1.8.0:** The project lock moves to schema 2. Upstream still reads schema 1 and migrates it in place the next time it writes the lock. It keeps every entry and re-derives `computedHash` only when the installed files still match. Sky therefore accepts project schema 1 or 2 with 1.8.0 and later, and only schema 1 with earlier releases.
+- **1.8.0:** The folder hash algorithm changes (see [lock files](#lock-files)).
+- **1.8.0:** The agent catalogue moves from `dist/cli.mjs` into `dist/_chunks/remove.mjs`. Its contents are unchanged.
+
+Probing a candidate does not automatically enable it for normal use.
 
 ## Lock files
 
 | Scope | Location | Schema | Hash |
 | --- | --- | --- | --- |
-| Project | `<project>/skills-lock.json` | 1 | `computedHash`, SHA-256 of folder paths and file bytes |
+| Project | `<project>/skills-lock.json` | 1 (2 since skills 1.8.0) | `computedHash`, SHA-256 of folder paths and file bytes |
 | Global | `~/.agents/.skill-lock.json` | 3 | `skillFolderHash`, GitHub tree SHA or source folder SHA-256 |
 | Global with XDG | `$XDG_STATE_HOME/skills/.skill-lock.json` | 3 | Same as above |
 
@@ -31,7 +38,12 @@ Lock entries are authoritative for provenance. Untracked installed folders are n
 
 The tool cannot infer a maintainer's declared deprecation policy: **removed upstream** means the skill disappeared from a confirmed readable source. GitHub 404s can also mean a private repository, so they are not treated as confirmed deletion. Checks preserve refs and group by both source and ref to avoid falsely marking a skill deleted on another branch.
 
-Source hashes are compared with upstream's algorithm. A small bundled Node helper preserves JavaScript `localeCompare` path ordering for SHA-256 hashes. Global GitHub entries with a 40-character tree SHA use the repository's Git tree object; 64-character hashes use file content. Checks clone Git sources into a temporary directory and remove it afterward. No lock or installation directory is changed by checking.
+Source hashes are compared with upstream's algorithms, which a small bundled Node helper reproduces:
+
+- **Before 1.8.0:** paths sorted with JavaScript `localeCompare`, then each path and its bytes hashed. `.git` and `node_modules` are skipped.
+- **1.8.0 and later:** paths sorted by UTF-8 bytes, then each path, its length and its bytes hashed, with CRLF normalised to LF in files without NUL bytes. `metadata.json`, `.git`, `__pycache__` and `__pypackages__` are skipped. `node_modules` is counted. Symlinks are followed only inside the skill folder.
+
+A project lock's schema shows which algorithm wrote its `computedHash`: schema 1 uses the older one, schema 2 the newer. The global lock stayed at schema 3 across the change, so a global folder hash matches if either algorithm produces it. Global GitHub entries with a 40-character tree SHA use the repository's Git tree object; 64-character hashes use file content. Checks clone Git sources into a temporary directory and remove it afterward. No lock or installation directory is changed by checking.
 
 ## Source support and limits
 

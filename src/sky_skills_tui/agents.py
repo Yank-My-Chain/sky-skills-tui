@@ -1,7 +1,8 @@
-"""Agent targets from the published skills@1.7.0 catalogue.
+"""Agent targets from the published npm skills catalogue, unchanged from 1.7.0 to 1.9.0.
 
-Source: https://registry.npmjs.org/skills/-/skills-1.7.0.tgz, package/dist/cli.mjs.
-The live compatibility suite verifies this metadata against the managed CLI.
+Source: https://registry.npmjs.org/skills/-/skills-1.7.0.tgz, package/dist/cli.mjs
+(package/dist/_chunks/remove.mjs since 1.8.0). The live compatibility suite verifies
+this metadata against the managed CLI.
 """
 
 COMMON_AGENTS = ("codex", "github-copilot", "cursor", "claude-code", "gemini-cli", "opencode")

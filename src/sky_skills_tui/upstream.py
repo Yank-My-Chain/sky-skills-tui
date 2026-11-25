@@ -1,4 +1,4 @@
-"""The explicit, tested boundary with npm skills 1.7.0."""
+"""The explicit, tested boundary with npm skills (see runtime.SUPPORTED_VERSIONS)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,9 @@ import json
 from typing import Any
 
 from .runtime import CompatibilityError
+
+# skills 1.7.5+ tags list rows; "missing" rows are locked skills with no files on disk.
+LIST_STATUSES = {"tracked", "untracked", "modified", "missing"}
 
 
 def json_rows(output: str, command: str) -> list[dict[str, Any]]:
@@ -26,6 +29,11 @@ def json_rows(output: str, command: str) -> list[dict[str, Any]]:
             ):
                 raise CompatibilityError("skills add: unrecognized result status or missing name.")
             continue
+        if command == "list" and "status" in row:
+            if row["status"] not in LIST_STATUSES:
+                raise CompatibilityError(f"skills list: unrecognized status {row['status']!r}.")
+            if row["status"] == "missing":
+                required["path"] = type(None)
         for field, kind in required.items():
             if not isinstance(row.get(field), kind):
                 raise CompatibilityError(f"skills {command}: {field!r} field changed or missing.")

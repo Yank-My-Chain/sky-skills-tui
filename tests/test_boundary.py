@@ -67,3 +67,26 @@ async def test_subprocess_timeout_and_cancellation(tmp_path):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+def test_list_boundary_accepts_status_rows_and_missing_skills():
+    rows = [
+        {"name": "alpha", "path": "/p/alpha", "scope": "project", "agents": ["Codex"]},
+        {"name": "beta", "path": "/p/beta", "scope": "project", "agents": [], "status": "tracked"},
+        {"name": "gamma", "path": "/p/g", "scope": "project", "agents": [], "status": "modified"},
+        {"name": "delta", "path": None, "scope": "project", "agents": [], "status": "missing"},
+    ]
+    assert json_rows(json.dumps(rows), "list") == rows
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"name": "a", "path": None, "scope": "project", "agents": [], "status": "tracked"},
+        {"name": "a", "path": "/p/a", "scope": "project", "agents": [], "status": "missing"},
+        {"name": "a", "path": "/p/a", "scope": "project", "agents": [], "status": "stale"},
+    ],
+)
+def test_list_boundary_rejects_inconsistent_status_rows(row):
+    with pytest.raises(CompatibilityError):
+        json_rows(json.dumps([row]), "list")

@@ -8,13 +8,27 @@ import os
 import re
 import signal
 from pathlib import Path
+from typing import Literal
 
 import nodejs_wheel.executable
 from filelock import FileLock, Timeout
 from platformdirs import user_data_path
 
 SKILLS_VERSION = "1.7.0"
-SUPPORTED_VERSIONS = frozenset({SKILLS_VERSION})
+SUPPORTED_VERSIONS = frozenset({SKILLS_VERSION, "1.9.0"})
+# skills 1.8.0 changed the folder hash and moved the project lock to schema 2.
+HASH_V2_RELEASE = (1, 8, 0)
+HashAlgorithm = Literal["legacy", "v2"]
+
+
+def release(version: str) -> tuple[int, ...]:
+    """Numeric release of an exact version; a prerelease sorts with its release."""
+    return tuple(int(part) for part in version.split("-", 1)[0].split("."))
+
+
+def hash_algorithm(version: str) -> HashAlgorithm:
+    """The folder hash algorithm a skills release writes into new lock entries."""
+    return "v2" if release(version) >= HASH_V2_RELEASE else "legacy"
 
 
 class CompatibilityError(RuntimeError):
@@ -159,19 +173,32 @@ class Runtime:
         await self.ensure()
         return await self.process([str(self.node), str(self.entry), *args], cwd)
 
+    @property
+    def hash_algorithm(self) -> HashAlgorithm:
+        return hash_algorithm(self.requested_version)
+
     async def folder_hash(self, path: Path) -> str:
         return (await self.folder_hashes([path]))[0]
 
     async def folder_hashes(self, paths: list[Path], batch: int = 50) -> list[str]:
-        """Hash folders with one Node process per batch instead of one per folder."""
+        """Hash folders with the algorithm the managed skills release writes."""
+        return [
+            variants[self.hash_algorithm]
+            for variants in await self.folder_hash_variants(paths, batch)
+        ]
+
+    async def folder_hash_variants(
+        self, paths: list[Path], batch: int = 50
+    ) -> list[dict[HashAlgorithm, str]]:
+        """Hash folders with every known algorithm, one Node process per batch."""
         helper = Path(__file__).with_name("hash.mjs")
-        hashes: list[str] = []
+        hashes: list[dict[HashAlgorithm, str]] = []
         # Batches keep command lines well below Windows' 32K character limit.
         for start in range(0, len(paths), batch):
             chunk = paths[start : start + batch]
             output = await self.process([str(self.node), str(helper), *map(str, chunk)], chunk[0])
-            lines = output.split()
-            if len(lines) != len(chunk):
+            lines = [line.split() for line in output.splitlines() if line.strip()]
+            if len(lines) != len(chunk) or any(len(line) != 2 for line in lines):
                 raise CommandError(f"Hash helper returned {len(lines)} of {len(chunk)} hashes.")
-            hashes.extend(lines)
+            hashes.extend({"legacy": legacy, "v2": v2} for legacy, v2 in lines)
         return hashes
