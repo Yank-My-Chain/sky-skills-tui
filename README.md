@@ -22,9 +22,9 @@ sky setup --upgrade
 
 Press **Space** to select, **A** to select visible skills, **S** to select a source, **C** to check, and **U** to update. Choose **Browse skills** to browse a repository or local path and install several skills at once. Installation settings explain scope, agents, and copy mode when you install or update. A searchable agent picker puts common targets first and remembers your confirmed selection across launches. Choose **View skill** (V) for the scrollable preview, **Activity log** (L) for operations, or **Help** (?) for help. Letter shortcuts are underlined within their button labels. The layout adapts down to 80 × 24 terminals. **Delete…** (D) opens a review dialog.
 
-Project `skills-lock.json` (v1) and global `.skill-lock.json` (v3) remain the source of truth. The app never migrates or rewrites locks itself. A confirmed missing skill is marked **removed upstream**; authentication failures, offline sources, and missing remote repositories are marked **source unavailable** because deletion cannot be confirmed. Old and future schemas remain visible and block mutations.
+Project `skills-lock.json` (v1, or v2 since skills 1.8.0) and global `.skill-lock.json` (v3) remain the source of truth. The app never migrates or rewrites locks itself. A confirmed missing skill is marked **removed upstream**; authentication failures, offline sources, and missing remote repositories are marked **source unavailable** because deletion cannot be confirmed. Old and future schemas remain visible and block mutations.
 
-The managed CLI is **skills 1.7.0**, verified by live contracts. Published npm behavior is tested directly. Global local-path installs are blocked because this release does not track them in its lock; use project scope or a Git URL. Well-known/download/npm sources have limited health checking. See [compatibility details](docs/compatibility.md).
+The managed CLI is **skills 1.9.0**; 1.7.0 is also supported. Both are verified by live contracts against the published npm packages. Well-known/download/npm sources have limited health checking. See [compatibility details](docs/compatibility.md).
 
 See the [changelog](CHANGELOG.md) for release history and upcoming changes. Sky releases use semantic versioning; the [release policy](docs/development.md#releases) explains version bumps and compatibility.
 
@@ -47,7 +47,7 @@ Fast tests use pytest and Textual Pilot. Live contracts exercise the actual npm 
 ```bash
 uv run pytest --integration --network
 # Probe a candidate release without declaring it supported:
-uv run pytest --integration --skills-version 1.7.0
+uv run pytest --integration --skills-version 1.9.0
 ```
 
 Documentation is built with [Zensical](https://zensical.org/). Run `uv run hatch run serve-docs` to view it. See [the developer guide](docs/development.md) for compatibility maintenance and the full test loop.

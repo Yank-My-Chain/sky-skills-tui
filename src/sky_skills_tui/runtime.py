@@ -14,10 +14,14 @@ import nodejs_wheel.executable
 from filelock import FileLock, Timeout
 from platformdirs import user_data_path
 
-SKILLS_VERSION = "1.7.0"
-SUPPORTED_VERSIONS = frozenset({SKILLS_VERSION, "1.9.0"})
+SKILLS_VERSION = "1.9.0"
+# Older supported releases still pass the live contracts. A managed installation of
+# one is replaced with SKILLS_VERSION automatically; anything else needs sky setup.
+SUPPORTED_VERSIONS = frozenset({"1.7.0", SKILLS_VERSION})
 # skills 1.8.0 changed the folder hash and moved the project lock to schema 2.
 HASH_V2_RELEASE = (1, 8, 0)
+# skills 1.8.0 also started writing global lock entries for local-path sources.
+GLOBAL_LOCAL_LOCK_RELEASE = (1, 8, 0)
 HashAlgorithm = Literal["legacy", "v2"]
 
 
@@ -49,7 +53,7 @@ class Runtime:
         allow_unverified: bool = False,
     ) -> None:
         if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?", version):
-            raise CompatibilityError("Use an exact npm skills version, such as 1.7.0.")
+            raise CompatibilityError(f"Use an exact npm skills version, such as {SKILLS_VERSION}.")
         if version not in SUPPORTED_VERSIONS and not allow_unverified:
             raise CompatibilityError(
                 f"npm skills {version} is unverified. Tested releases: "
@@ -137,7 +141,12 @@ class Runtime:
                     await asyncio.sleep(0.1)
             try:
                 version = self.version()
-                if version and version != self.requested_version and not upgrade:
+                if (
+                    version
+                    and version != self.requested_version
+                    and not upgrade
+                    and not self._superseded(version)
+                ):
                     raise CompatibilityError(
                         f"Managed npm skills {version} differs from tested "
                         f"{self.requested_version}. Run sky setup --upgrade to repair it."
@@ -168,6 +177,19 @@ class Runtime:
                 return self.version() or self.requested_version
             finally:
                 lock.release()
+
+    def _superseded(self, version: str) -> bool:
+        """An older supported release Sky itself managed, safe to replace in place."""
+        try:
+            return version in SUPPORTED_VERSIONS and release(version) < release(
+                self.requested_version
+            )
+        except ValueError:
+            return False
+
+    @property
+    def tracks_global_local_sources(self) -> bool:
+        return release(self.requested_version) >= GLOBAL_LOCAL_LOCK_RELEASE
 
     async def run(self, args: list[str], cwd: Path) -> str:
         await self.ensure()

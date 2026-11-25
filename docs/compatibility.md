@@ -1,12 +1,15 @@
 # Locks and upstream compatibility
 
-The managed release is **npm skills 1.7.0**. Sky also supports **1.9.0**, and both pass the live contract suite on every push. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime. A managed installation whose version differs from the supported release is reported explicitly; `sky setup --upgrade` repairs it.
+The managed release is **npm skills 1.9.0**. Sky also supports **1.7.0**, and both pass the live contract suite on every push. Upstream is actively developed, so compatibility is a tested boundary rather than an assumption about its latest code. An unverified release is rejected by the normal runtime.
+
+A managed installation of an older supported release, such as 1.7.0 left by Sky 0.3.0, is replaced with the managed release automatically. Any other version is reported explicitly and left alone; `sky setup --upgrade` repairs it.
 
 During development, 1.6.0 also passed the local CLI contract suite as a candidate, while 1.5.0 failed both lifecycle contracts because `add --json` did not produce the expected JSON array. Releases 1.7.5 through 1.9.0 changed several contracts. Sky handles each one, and the shapes from 1.7.6 and 1.8.1 also pass the live suite:
 
 - **1.7.5:** `skills list --json` tags each row with a `status` (`tracked`, `untracked`, or `modified` since 1.9.0). It also lists locked skills that are not on disk as `status: "missing"` rows with `path: null`. Sky treats these skills as not installed.
 - **1.8.0:** The project lock moves to schema 2. Upstream still reads schema 1 and migrates it in place the next time it writes the lock. It keeps every entry and re-derives `computedHash` only when the installed files still match. Sky therefore accepts project schema 1 or 2 with 1.8.0 and later, and only schema 1 with earlier releases.
 - **1.8.0:** The folder hash algorithm changes (see [lock files](#lock-files)).
+- **1.8.0:** Global installs from a local folder are recorded in the global lock (see [source support](#source-support-and-limits)).
 - **1.8.0:** The agent catalogue moves from `dist/cli.mjs` into `dist/_chunks/remove.mjs`. Its contents are unchanged.
 
 Probing a candidate does not automatically enable it for normal use.
@@ -49,16 +52,16 @@ A project lock's schema shows which algorithm wrote its `computedHash`: schema 1
 
 Installation scope and source type are separate choices. **Project** scope installs into the current project and records `skills-lock.json`; **global** scope installs into your user directories and records the global `.skill-lock.json`. Either scope can use a Git repository as its source. A **local-path source** is a folder on disk, such as `./my-skills`, regardless of where its files are installed.
 
-In the published `skills` 1.7.0 package, `skills add ./my-skills --global` can install files but does not write a global lock entry. Its global lock-writing branch requires a normalized repository source identifier, which a local folder lacks. The project lock-writing branch does not have that requirement, so `skills add ./my-skills` records the source and folder hash correctly. This behavior is visible in the [1.7.0 install implementation](https://github.com/vercel-labs/skills/blob/v1.7.0/src/add.ts) and covered by Sky's live contracts.
+Before 1.8.0, `skills add ./my-skills --global` can install files but does not write a global lock entry. Its global lock-writing branch requires a normalized repository source identifier, which a local folder lacks. The project lock-writing branch does not have that requirement, so `skills add ./my-skills` records the source and folder hash correctly. This behavior is visible in the [1.7.0 install implementation](https://github.com/vercel-labs/skills/blob/v1.7.0/src/add.ts) and covered by Sky's live contracts.
 
-Sky blocks **local-path source + global scope** before installation because an untracked installation would lack the upstream provenance needed to manage it. This restriction does not apply to Git-based global installs or local-path project installs. An upstream fix can remove it once the new release passes the compatibility contracts.
+With those releases, Sky blocks **local-path source + global scope** before installation, because an untracked installation would lack the upstream provenance needed to manage it. skills 1.8.0 fixed this: global local-path installs are recorded with their absolute source path and folder hash. Sky allows them with 1.8.0 and later, and the live contracts install, check, and remove one.
 
 | Source | Browse/install | Check |
 | --- | --- | --- |
 | GitHub repositories | Yes, project/global | Folder hashes and refs; public tree SHA covered by network contract |
 | GitLab/generic Git | Yes when the original URL is available | Folder hash and ref |
 | Local directories | Project scope | Folder hash; missing local source detected |
-| Global local directories | Blocked in 1.7.0 because no global lock is generated | Existing compatible lock entries can be read |
+| Global local directories | Yes with skills 1.8.0+; blocked with 1.7.0, which writes no global lock entry | Folder hash; missing local source detected |
 | Well-known skill sites | Upstream listing/install; only successfully locked entries count as managed | Unverifiable in this version |
 | Direct downloads / archives | Upstream can install, but may not generate a lock; reported as unsupported management | Unverifiable |
 | `node_modules` entries | Existing lock entries displayed | Unverifiable; use upstream experimental sync directly |
@@ -76,7 +79,7 @@ Live tests exercise `--version`, `add --list --full-depth`, `add --skill … --a
 Run a candidate without changing supported versions:
 
 ```bash
-uv run pytest --integration --skills-version 1.7.0
+uv run pytest --integration --skills-version 1.9.0
 uv run pytest --integration --network --skills-version 1.7.0
 ```
 

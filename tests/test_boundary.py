@@ -56,6 +56,34 @@ async def test_installed_version_drift_is_reported_without_overwriting(tmp_path)
         await runtime.ensure()
 
 
+async def test_older_supported_managed_release_is_replaced(tmp_path, monkeypatch):
+    runtime = Runtime(tmp_path, version="1.9.0")
+    path = tmp_path / "node_modules/skills/package.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": "1.7.0"}))
+    calls = []
+
+    async def fake_process(args, cwd, timeout=180):
+        calls.append(args)
+        if "install" in args:
+            path.write_text(json.dumps({"version": "1.9.0"}))
+            return ""
+        return "1.9.0\n"
+
+    monkeypatch.setattr(runtime, "process", fake_process)
+    runtime.entry.parent.mkdir(parents=True)
+    runtime.entry.write_text("")
+    assert await runtime.ensure() == "1.9.0"
+    assert any("skills@1.9.0" in args for args in calls)
+    # A newer or unknown release is never silently replaced by an older pin.
+    newer = Runtime(tmp_path / "newer", version="1.7.0")
+    newer_path = newer.prefix / "node_modules/skills/package.json"
+    newer_path.parent.mkdir(parents=True)
+    newer_path.write_text(json.dumps({"version": "1.9.0"}))
+    with pytest.raises(CompatibilityError, match="differs"):
+        await newer.ensure()
+
+
 async def test_subprocess_timeout_and_cancellation(tmp_path):
     runtime = Runtime(tmp_path / "npm")
     with pytest.raises(TimeoutError):

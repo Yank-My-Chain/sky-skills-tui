@@ -196,11 +196,25 @@ async def test_refs_scope_isolation_and_confirmed_deprecation(real_service, git_
     assert [s.scope for s in service.inventory().skills] == ["global"]
 
 
-async def test_global_local_is_explicitly_unsupported(real_service, source):
-    available = await real_service.browse(str(source), "global")
-    with pytest.raises(CompatibilityError, match="global local-path"):
-        await real_service.install(available, ["codex"])
-    assert not (real_service.home / ".agents/skills").exists()
+async def test_global_local_path_installs_follow_upstream_tracking(real_service, source):
+    service = real_service
+    available = await service.browse(str(source), "global")
+    if not service.runtime.tracks_global_local_sources:
+        with pytest.raises(CompatibilityError, match="global local-path"):
+            await service.install(available, ["codex"])
+        assert not (service.home / ".agents/skills").exists()
+        return
+    # skills 1.8.0+ records local sources in the global lock, so Sky can manage them.
+    await service.install([s for s in available if s.name == "alpha"], ["codex"])
+    tracked = service.inventory().skills
+    assert [(s.name, s.scope, s.source_type) for s in tracked] == [("alpha", "global", "local")]
+    await service.check(tracked)
+    assert tracked[0].status == Status.CURRENT
+    (source / "alpha/references/Guide.txt").write_text("changed locally")
+    await service.check(tracked)
+    assert tracked[0].status == Status.OUTDATED
+    await service.remove(tracked)
+    assert not service.inventory().skills
 
 
 async def test_private_missing_or_offline_source_is_not_deprecated(real_service):

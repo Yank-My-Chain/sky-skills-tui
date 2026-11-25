@@ -168,7 +168,11 @@ class SkillsService:
                 source_path = Path(source).expanduser()
                 if not source_path.is_absolute():
                     source_path = self.project / source_path
-                if scope == "global" and source_path.exists():
+                if (
+                    scope == "global"
+                    and source_path.exists()
+                    and not self.runtime.tracks_global_local_sources
+                ):
                     raise CompatibilityError(
                         f"npm skills {self.runtime.requested_version} does not track global "
                         "local-path installs in its lock. "

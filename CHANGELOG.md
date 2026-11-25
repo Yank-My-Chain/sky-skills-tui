@@ -14,10 +14,21 @@ contract and release process.
 
 ### Added
 
-- Sky supports npm skills 1.9.0 alongside the managed 1.7.0 release. It reads
-  the new `skills list --json` rows, accepts schema 2 project locks, and checks
-  updates with the folder hash that skills 1.8.0 introduced. Locks written by
-  either release check as current.
+- Global installs from a local folder. npm skills 1.8.0 and later record them
+  in the global lock, so Sky no longer blocks them.
+
+### Changed
+
+- Sky now manages npm skills 1.9.0 instead of 1.7.0. An existing managed 1.7.0
+  installation is replaced automatically on first launch; `sky setup` is not
+  needed. 1.7.0 remains supported.
+- Sky reads the new `skills list --json` rows and accepts schema 2 project
+  locks. Checks use the folder hash introduced in skills 1.8.0, and locks
+  written by either release check as current.
+- **Compatibility note:** skills 1.9.0 rewrites a project's `skills-lock.json`
+  from schema 1 to schema 2 the next time it installs, updates, or removes a
+  skill there. Sky 0.3.0 and earlier show schema 2 locks but refuse to modify
+  them, so upgrade Sky everywhere a project is shared.
 
 ### Fixed
 

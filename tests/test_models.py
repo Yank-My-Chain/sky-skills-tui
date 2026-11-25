@@ -52,7 +52,7 @@ def test_invalid_locks_are_visible_and_block_mutations(isolated, payload):
     assert lock.read_text() == payload
 
 
-@pytest.mark.parametrize("version", [0, 2, 4, "1", True])
+@pytest.mark.parametrize("version", [0, 3, 4, "1", True])
 def test_schema_drift_preserves_entries(isolated, version):
     home, project = isolated
     path = project / "skills-lock.json"
