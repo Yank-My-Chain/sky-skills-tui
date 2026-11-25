@@ -25,6 +25,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
       - run: uv run pytest --integration --network --skills-version "${{ matrix.skills_version }}" --junitxml=supported.xml
+        env:
+          # Unauthenticated GitHub API calls hit shared-runner rate limits, and npm
+          # skills then records a content hash instead of the tree SHA under test.
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -55,6 +59,8 @@ jobs:
           printf 'Probing npm skills %s\n' "$candidate_version"
       - name: Probe compatibility
         run: uv run pytest --integration --network --skills-version "$SKILLS_CANDIDATE_VERSION" --junitxml=candidate.xml
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
