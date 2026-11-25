@@ -87,7 +87,7 @@ async def main() -> None:
             )
             app.query_one("#skills", DataTable).move_cursor(row=row)
             app.action_select_source()
-            app.activity("npm skills 1.7.0 ready · checked 6 skills across 3 sources")
+            app.activity("npm skills 1.9.0 ready · checked 6 skills across 3 sources")
             app.activity("vercel-react-best-practices: outdated — source folder changed")
             await pilot.pause()
             app.save_screenshot("sky.svg", path=str(args.output))

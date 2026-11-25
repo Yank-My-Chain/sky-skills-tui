@@ -152,3 +152,58 @@ async def test_check_runs_sources_concurrently_with_progress_and_batched_hashes(
     assert progress == [(1, 2, 3), (2, 2, 3)]
     assert len(processes) == 2, "one hash process per source, not per skill"
     assert [s.status for s in skills] == [Status.CURRENT] * 4 + [Status.OUTDATED, Status.CURRENT]
+
+
+async def test_hash_algorithm_follows_release_and_lock_schema(isolated, source, tmp_path):
+    home, project = isolated
+    legacy_runtime = Runtime(tmp_path / "npm", version="1.7.0")
+    v2_runtime = Runtime(tmp_path / "npm", version="1.9.0")
+    folder = source / "alpha"
+    legacy, v2 = await legacy_runtime.folder_hash(folder), await v2_runtime.folder_hash(folder)
+    assert legacy != v2
+    assert await legacy_runtime.folder_hash_variants([folder]) == [{"legacy": legacy, "v2": v2}]
+
+    def skill(scope, version, expected):
+        hash_key = "skillFolderHash" if scope == "global" else "computedHash"
+        return Skill(
+            "alpha",
+            str(source),
+            scope,
+            project / "skills-lock.json",
+            {"sourceType": "local", hash_key: expected},
+            lock_version=version,
+        )
+
+    # A schema 1 project lock keeps its legacy hash until upstream migrates it; global
+    # locks stayed at schema 3, so they may hold either algorithm's hash.
+    skills = [
+        skill("project", 1, legacy),
+        skill("project", 2, v2),
+        skill("project", 1, v2),
+        skill("project", 2, legacy),
+        skill("global", 3, legacy),
+        skill("global", 3, v2),
+    ]
+    await SkillsService(project, v2_runtime, home).check(skills)
+    assert [s.status for s in skills] == [Status.CURRENT] * 2 + [Status.OUTDATED] * 2 + [
+        Status.CURRENT
+    ] * 2
+
+
+async def test_v2_hash_matches_upstream_normalisation_and_exclusions(tmp_path):
+    runtime = Runtime(tmp_path / "npm", version="1.9.0")
+    lf, crlf = tmp_path / "lf", tmp_path / "crlf"
+    for root, text in ((lf, b"a\nb\n"), (crlf, b"a\r\nb\r\n")):
+        root.mkdir()
+        (root / "SKILL.md").write_bytes(text)
+    lf_hashes, crlf_hashes = await runtime.folder_hash_variants([lf, crlf])
+    assert lf_hashes["v2"] == crlf_hashes["v2"]
+    assert lf_hashes["legacy"] != crlf_hashes["legacy"]
+    before = await runtime.folder_hash(lf)
+    (lf / "metadata.json").write_text("{}")
+    (lf / "__pycache__").mkdir()
+    (lf / "__pycache__/x.pyc").write_text("cache")
+    assert await runtime.folder_hash(lf) == before
+    (lf / "node_modules").mkdir()
+    (lf / "node_modules/dep.js").write_text("counted since 1.8.0")
+    assert await runtime.folder_hash(lf) != before

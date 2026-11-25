@@ -22,7 +22,7 @@ from .models import (
     read_inventory,
     validate_lock_for_mutation,
 )
-from .runtime import CommandError, CompatibilityError, Runtime
+from .runtime import CommandError, CompatibilityError, HashAlgorithm, Runtime
 from .upstream import json_rows
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -95,7 +95,7 @@ class SkillsService:
         self.mutation_lock = asyncio.Lock()
 
     def inventory(self) -> Inventory:
-        return read_inventory(self.project, self.home)
+        return read_inventory(self.project, self.home, self.runtime.requested_version)
 
     async def installed(self, skills: list[Skill]) -> None:
         """Enrich lock entries with the upstream CLI's actual placement information."""
@@ -110,7 +110,12 @@ class SkillsService:
             )
         )
         for scope, output in zip(scopes, outputs, strict=True):
-            entries = {entry["name"]: entry for entry in json_rows(output, "list")}
+            # skills 1.7.5+ also lists locked-but-absent skills, with path null.
+            entries = {
+                entry["name"]: entry
+                for entry in json_rows(output, "list")
+                if entry["path"] is not None
+            }
             for skill in skills:
                 if skill.scope != scope:
                     continue
@@ -157,13 +162,20 @@ class SkillsService:
         messages = []
         async with self.mutation_lock:
             for (scope, source), group in groups.items():
-                validate_lock_for_mutation(self.lock_path(scope), scope)
+                validate_lock_for_mutation(
+                    self.lock_path(scope), scope, self.runtime.requested_version
+                )
                 source_path = Path(source).expanduser()
                 if not source_path.is_absolute():
                     source_path = self.project / source_path
-                if scope == "global" and source_path.exists():
+                if (
+                    scope == "global"
+                    and source_path.exists()
+                    and not self.runtime.tracks_global_local_sources
+                ):
                     raise CompatibilityError(
-                        "npm skills 1.7.0 does not track global local-path installs in its lock. "
+                        f"npm skills {self.runtime.requested_version} does not track global "
+                        "local-path installs in its lock. "
                         "Use project scope or a Git URL."
                     )
                 args = [
@@ -207,7 +219,9 @@ class SkillsService:
         messages = []
         async with self.mutation_lock:
             for scope, names in groups.items():
-                validate_lock_for_mutation(self.lock_path(scope), scope)
+                validate_lock_for_mutation(
+                    self.lock_path(scope), scope, self.runtime.requested_version
+                )
                 args = ["remove", *names, "--yes"]
                 if scope == "global":
                     args.append("--global")
@@ -323,20 +337,38 @@ class SkillsService:
             spec = "HEAD^{tree}" if relative == "." else "HEAD:" + relative
             return (await self.runtime.process(["git", "rev-parse", spec], root)).strip()
 
+        def accepted(skill: Skill) -> tuple[HashAlgorithm, ...]:
+            # A project lock's schema says which algorithm wrote computedHash; upstream
+            # migrates schema 1 hashes only when it next writes the lock. Global locks
+            # stayed at schema 3 across the change, so either algorithm may be recorded.
+            if skill.scope == "project" and skill.lock_version in (1, 2):
+                return ("legacy",) if skill.lock_version == 1 else ("v2",)
+            if skill.scope == "global":
+                return ("legacy", "v2")
+            return (self.runtime.hash_algorithm,)
+
         trees = [(skill, folder) for skill, folder, sha, _ in comparable if tree_hash(skill, sha)]
         folders = [
             (skill, folder) for skill, folder, sha, _ in comparable if not tree_hash(skill, sha)
         ]
-        tree_hashes, folder_hashes = await gather_all(
-            gather_all(*(revision(folder) for _, folder in trees)),
-            self.runtime.folder_hashes([folder for _, folder in folders]),
-        )
+
+        async def tree_matches() -> list[set[str]]:
+            return [{sha} for sha in await gather_all(*(revision(folder) for _, folder in trees))]
+
+        async def folder_matches() -> list[set[str]]:
+            variants = await self.runtime.folder_hash_variants([folder for _, folder in folders])
+            return [
+                {hashes[algorithm] for algorithm in accepted(skill)}
+                for (skill, _), hashes in zip(folders, variants, strict=True)
+            ]
+
+        tree_sets, folder_sets = await gather_all(tree_matches(), folder_matches())
         actual = {
-            id(skill): value
-            for (skill, _), value in zip(trees + folders, tree_hashes + folder_hashes, strict=True)
+            id(skill): matches
+            for (skill, _), matches in zip(trees + folders, tree_sets + folder_sets, strict=True)
         }
         for skill, _, expected, moved in comparable:
-            changed = actual[id(skill)] != expected
+            changed = expected not in actual[id(skill)]
             skill.status = Status.OUTDATED if changed or moved else Status.CURRENT
             skill.reason = (
                 "Skill moved upstream."

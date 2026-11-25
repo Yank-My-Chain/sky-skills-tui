@@ -56,6 +56,34 @@ async def test_installed_version_drift_is_reported_without_overwriting(tmp_path)
         await runtime.ensure()
 
 
+async def test_older_supported_managed_release_is_replaced(tmp_path, monkeypatch):
+    runtime = Runtime(tmp_path, version="1.9.0")
+    path = tmp_path / "node_modules/skills/package.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": "1.7.0"}))
+    calls = []
+
+    async def fake_process(args, cwd, timeout=180):
+        calls.append(args)
+        if "install" in args:
+            path.write_text(json.dumps({"version": "1.9.0"}))
+            return ""
+        return "1.9.0\n"
+
+    monkeypatch.setattr(runtime, "process", fake_process)
+    runtime.entry.parent.mkdir(parents=True)
+    runtime.entry.write_text("")
+    assert await runtime.ensure() == "1.9.0"
+    assert any("skills@1.9.0" in args for args in calls)
+    # A newer or unknown release is never silently replaced by an older pin.
+    newer = Runtime(tmp_path / "newer", version="1.7.0")
+    newer_path = newer.prefix / "node_modules/skills/package.json"
+    newer_path.parent.mkdir(parents=True)
+    newer_path.write_text(json.dumps({"version": "1.9.0"}))
+    with pytest.raises(CompatibilityError, match="differs"):
+        await newer.ensure()
+
+
 async def test_subprocess_timeout_and_cancellation(tmp_path):
     runtime = Runtime(tmp_path / "npm")
     with pytest.raises(TimeoutError):
@@ -67,3 +95,26 @@ async def test_subprocess_timeout_and_cancellation(tmp_path):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+def test_list_boundary_accepts_status_rows_and_missing_skills():
+    rows = [
+        {"name": "alpha", "path": "/p/alpha", "scope": "project", "agents": ["Codex"]},
+        {"name": "beta", "path": "/p/beta", "scope": "project", "agents": [], "status": "tracked"},
+        {"name": "gamma", "path": "/p/g", "scope": "project", "agents": [], "status": "modified"},
+        {"name": "delta", "path": None, "scope": "project", "agents": [], "status": "missing"},
+    ]
+    assert json_rows(json.dumps(rows), "list") == rows
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"name": "a", "path": None, "scope": "project", "agents": [], "status": "tracked"},
+        {"name": "a", "path": "/p/a", "scope": "project", "agents": [], "status": "missing"},
+        {"name": "a", "path": "/p/a", "scope": "project", "agents": [], "status": "stale"},
+    ],
+)
+def test_list_boundary_rejects_inconsistent_status_rows(row):
+    with pytest.raises(CompatibilityError):
+        json_rows(json.dumps([row]), "list")

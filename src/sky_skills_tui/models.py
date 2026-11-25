@@ -10,6 +10,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from .runtime import HASH_V2_RELEASE, SKILLS_VERSION, release
+
 
 class Status(StrEnum):
     UNCHECKED = "unchecked"
@@ -32,6 +34,7 @@ class Skill:
     status: Status = Status.UNCHECKED
     reason: str = "Run Check to compare with the source."
     description: str = ""
+    lock_version: int | None = None
 
     @property
     def key(self) -> str:
@@ -79,14 +82,33 @@ def sanitized_name(name: str) -> str:
     return re.sub(r"[^a-z0-9._]+", "-", name.lower()).strip(".-")[:255] or "unnamed-skill"
 
 
-def read_inventory(project: Path, home: Path | None = None) -> Inventory:
+def lock_schemas(scope: str, skills_version: str = SKILLS_VERSION) -> tuple[int, ...]:
+    """Lock schema versions the given skills release reads without discarding entries.
+
+    The global lock is schema 3 throughout; upstream empties older global locks.
+    skills 1.8.0 moved the project lock to schema 2 and migrates schema 1 in place,
+    re-deriving each computedHash only when the installed files still match it.
+    """
+    if scope == "global":
+        return (3,)
+    return (1, 2) if release(skills_version) >= HASH_V2_RELEASE else (1,)
+
+
+def _expected(schemas: tuple[int, ...]) -> str:
+    return " or ".join(map(str, schemas))
+
+
+def read_inventory(
+    project: Path, home: Path | None = None, skills_version: str = SKILLS_VERSION
+) -> Inventory:
     home = home or Path.home()
     skills: list[Skill] = []
     warnings: list[str] = []
-    for scope, path, root, expected in (
-        ("project", project / "skills-lock.json", project, 1),
-        ("global", global_lock(home), home, 3),
+    for scope, path, root in (
+        ("project", project / "skills-lock.json", project),
+        ("global", global_lock(home), home),
     ):
+        expected = lock_schemas(scope, skills_version)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -98,9 +120,9 @@ def read_inventory(project: Path, home: Path | None = None) -> Inventory:
             warnings.append(f"Invalid lock structure: {path}")
             continue
         version = data.get("version")
-        if type(version) is not int or version != expected:
+        if type(version) is not int or version not in expected:
             warnings.append(
-                f"{path}: schema {version!r}, expected {expected}. "
+                f"{path}: schema {version!r}, expected {_expected(expected)}. "
                 "Entries are shown; mutations are blocked until the schema is supported."
             )
         for name, entry in data["skills"].items():
@@ -108,6 +130,7 @@ def read_inventory(project: Path, home: Path | None = None) -> Inventory:
                 warnings.append(f"Invalid entry {name!r} in {path}")
                 continue
             skill = Skill(name, entry["source"], scope, path, dict(entry))
+            skill.lock_version = version if type(version) is int else None
             canonical = root / ".agents/skills" / sanitized_name(name)
             if (canonical / "SKILL.md").is_file():
                 skill.installed_path = canonical
@@ -115,17 +138,19 @@ def read_inventory(project: Path, home: Path | None = None) -> Inventory:
     return Inventory(sorted(skills, key=lambda s: (s.source, s.scope, s.name)), warnings)
 
 
-def validate_lock_for_mutation(path: Path, scope: str) -> None:
+def validate_lock_for_mutation(
+    path: Path, scope: str, skills_version: str = SKILLS_VERSION
+) -> None:
     """Prevent upstream's old-lock migration from silently wiping tracked entries."""
     if not path.exists():
         return
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        expected = 3 if scope == "global" else 1
+        expected = lock_schemas(scope, skills_version)
         if (
             not isinstance(data, dict)
             or type(data.get("version")) is not int
-            or data["version"] != expected
+            or data["version"] not in expected
             or not isinstance(data.get("skills"), dict)
             or any(
                 not isinstance(entry, dict) or not isinstance(entry.get("source"), str)

@@ -52,7 +52,7 @@ def test_invalid_locks_are_visible_and_block_mutations(isolated, payload):
     assert lock.read_text() == payload
 
 
-@pytest.mark.parametrize("version", [0, 2, 4, "1", True])
+@pytest.mark.parametrize("version", [0, 3, 4, "1", True])
 def test_schema_drift_preserves_entries(isolated, version):
     home, project = isolated
     path = project / "skills-lock.json"
@@ -72,3 +72,31 @@ def test_relative_local_sources_resolve_against_lock(isolated):
     assert skill.source_input == str(project.parent / "source")
     assert sanitized_name("../Unsafe Skill---Name") == "unsafe-skill-name"
     assert sanitized_name("...") == "unnamed-skill"
+
+
+@pytest.mark.parametrize(
+    "skills_version,schemas",
+    [("1.7.0", (1,)), ("1.7.6", (1,)), ("1.8.0", (1, 2)), ("1.9.0", (1, 2))],
+)
+def test_project_lock_schema_follows_skills_release(isolated, skills_version, schemas):
+    home, project = isolated
+    path = project / "skills-lock.json"
+    for version in (1, 2, 3):
+        write_lock(path, {"alpha": {"source": "owner/repo"}}, version)
+        inventory = read_inventory(project, home, skills_version)
+        assert inventory.skills[0].lock_version == version
+        assert bool(inventory.warnings) is (version not in schemas)
+        if version in schemas:
+            validate_lock_for_mutation(path, "project", skills_version)
+        else:
+            with pytest.raises(ValueError, match="Refusing"):
+                validate_lock_for_mutation(path, "project", skills_version)
+
+
+@pytest.mark.parametrize("skills_version", ["1.7.0", "1.9.0"])
+def test_global_lock_stays_schema_three(isolated, skills_version):
+    home, project = isolated
+    write_lock(global_lock(home), {"alpha": {"source": "owner/repo"}}, 2)
+    assert read_inventory(project, home, skills_version).warnings
+    with pytest.raises(ValueError, match="Refusing"):
+        validate_lock_for_mutation(global_lock(home), "global", skills_version)
